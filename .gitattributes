@@ -1,0 +1,13 @@
+# Бинарные файлы: ни в коем случае не трогать переводы строк
+*.atn   binary
+*.psw   binary
+*.tbr   binary
+*.exe   binary
+
+# Скрипты и пресеты Windows
+*.jsx   text eol=crlf
+*.bat   text eol=crlf
+
+# Остальное
+*.py    text eol=lf
+*.md    text

@@ -1,0 +1,20 @@
+# Дроплеты: .exe привязан к версии Photoshop и бесполезен на чужой машине
+Droplets/
+
+# Рабочие копии наборов с путями к своему хранилищу
+Action/Local/
+
+# Резервные копии наборов операций — для этого есть история git
+Action/Old/
+
+# Временное
+Untitled.TXT
+*.tmp
+~*
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
