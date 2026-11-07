@@ -8,24 +8,27 @@
  * Что делает:
  *   1. Документ slides x 2048 x 2560 px, 72 ppi, RGB, 8 bit, sRGB,
  *      белый фоновый слой, квадратные пиксели.
- *   2. Слои снизу вверх:  Background (белый, залочен)
+ *   2. Для формата 9:16 вместо общей группы Slides создаются группы
+ *      Slide 01…NN, у каждой маска, пропускающая только свой слайд:
+ *      что положено внутрь, за его границы не выйдет (maskPerSlide).
+ *   3. Слои снизу вверх:  Background (белый, залочен)
  *                         Layer 1    (сплошной чёрный на весь холст,
  *                                     скрыт чёрной маской)
  *                         Slides     (группа — сюда ложатся фотографии)
  *                         Channel Mixer 1 (монохром 45 / 40 / 20, константа 0)
- *   3. Направляющие двумя цветами: границы слайдов и верх/низ кадра —
+ *   4. Направляющие двумя цветами: границы слайдов и верх/низ кадра —
  *      COLOR_FRAME, центры слайдов и центр по высоте — COLOR_CENTER.
  *      Цвет задаётся через Action Manager перед созданием каждой группы,
  *      поэтому каждая направляющая запоминает свой. Требуется
  *      Photoshop 23.4 (2022) или новее — в старых версиях цвет общий.
- *   4. Раскладывает фотографии из папки. По умолчанию (photoMode
+ *   5. Раскладывает фотографии из папки. По умолчанию (photoMode
  *      "quadrants") — по четырём четвертям каждого слайда, масштабируя
  *      каждый снимок по длинной стороне до photoLongSide и центрируя его
  *      в своей четверти; пятый снимок уходит в первую четверть следующего
  *      слайда. Режим "frame" кладёт по одному снимку на слайд, вписывая
  *      его в кадр 2:3. Если снимков меньше, чем мест, блок прижимается
  *      к ПРАВОМУ краю ленты (photoAlign), занимая целое число слайдов.
- *   5. По желанию сохраняет результат под именем saveName: .psb, если
+ *   6. По желанию сохраняет результат под именем saveName: .psb, если
  *      холст шире 30000 px, иначе .psd.
  *
  * При запуске спрашивает количество слайдов, формат кадра, глубину цвета
@@ -53,8 +56,9 @@ app.bringToFront();
         showDialog:   true,       // false = молча взять значения из CFG
         dialogSlides: [10, 20],   // варианты количества слайдов
         dialogRatios: [           // варианты формата слайда
-            { label: "4:5", width: 2048 },
-            { label: "3:4", width: 1920 }
+            { label: "4:5",  width: 2048 },
+            { label: "3:4",  width: 1920 },
+            { label: "9:16", width: 1440 }
         ],
         dialogBits:   [8, 16],    // варианты глубины цвета
 
@@ -108,6 +112,15 @@ app.bringToFront();
         blackColor:     [0, 0, 0],
         blackLayerMask: true,             // чёрная маска на нём — слой скрыт целиком
         slidesGroup:    "Slides",         // "" = не создавать группу
+
+        // Разбить группу Slides на подгруппы по числу слайдов, каждой дать
+        // маску, пропускающую только свой слайд. Фотография для слайда N
+        // ложится прямо в подгруппу N и за его пределы не выходит.
+        //   "9:16"   — только для вертикального формата
+        //   "always" — для любого формата
+        //   "never"  — не создавать
+        maskPerSlide:   "9:16",
+        maskPrefix:     "Slide ",         // + номер с ведущим нулём
         channelMixer:   true,             // ч/б корректирующий слой
         mixerMono:      [45, 40, 20, 0],  // red, green, blue, constant, %
 
@@ -211,8 +224,10 @@ app.bringToFront();
         return lyr;
     }
 
-    // чёрная (скрывающая всё) маска на активном слое
-    function addHideAllMask() {
+    // Маска на активном слое или группе.
+    //   "hideAll"         — чёрная, скрывает всё
+    //   "revealSelection" — белая по текущему выделению, чёрная вокруг
+    function addMask(kind) {
         var d = new ActionDescriptor();
         d.putClass(stringIDToTypeID("new"), charIDToTypeID("Chnl"));
 
@@ -222,9 +237,58 @@ app.bringToFront();
 
         d.putEnumerated(stringIDToTypeID("using"),
                         stringIDToTypeID("userMaskEnabled"),
-                        stringIDToTypeID("hideAll"));
+                        stringIDToTypeID(kind));
 
         executeAction(stringIDToTypeID("make"), d, DialogModes.NO);
+    }
+
+    function addHideAllMask() { addMask("hideAll"); }
+
+    function pad2(n) { return (n < 10 ? "0" : "") + n; }
+
+    // Ярлык формата по ширине слайда: "4:5", "9:16" и т. п.
+    function ratioLabelFor(c, width) {
+        for (var i = 0; i < c.dialogRatios.length; i++) {
+            if (c.dialogRatios[i].width === width) { return c.dialogRatios[i].label; }
+        }
+        return "";
+    }
+
+    // Нужны ли подгруппы с масками для этого формата
+    function wantSlideGroups(c, ratioLabel) {
+        if (c.maskPerSlide === "always") { return true; }
+        if (c.maskPerSlide === "never" || !c.maskPerSlide) { return false; }
+        return c.maskPerSlide === ratioLabel;
+    }
+
+    // Группы Slide 01 … Slide NN, у каждой маска, пропускающая только свой
+    // слайд. Создаём с конца, чтобы в палитре первый слайд оказался сверху.
+    //
+    // Группы живут на верхнем уровне, а не внутри общей Slides: перенос
+    // группы в группу Photoshop через DOM не выполняет — move с
+    // ElementPlacement.INSIDE принимает только обычный слой и на группе
+    // бросает Illegal Argument.
+    function makeSlideGroups(doc, c, n, slideW, h) {
+        var groups = [];
+        groups.length = n;
+
+        for (var i = n - 1; i >= 0; i--) {
+            var g = doc.layerSets.add();
+            g.name = c.maskPrefix + pad2(i + 1);
+
+            doc.activeLayer = g;
+            doc.selection.select([
+                [ i * slideW,       0 ],
+                [ (i + 1) * slideW, 0 ],
+                [ (i + 1) * slideW, h ],
+                [ i * slideW,       h ]
+            ]);
+            addMask("revealSelection");
+            doc.selection.deselect();
+
+            groups[i] = g;
+        }
+        return groups;
     }
 
     // Channel Mixer с включённым «Монохромный».
@@ -682,8 +746,15 @@ app.bringToFront();
             }
         }
 
+        // Либо двадцать групп с масками — по одной на слайд, либо одна
+        // общая Slides. Вместе их не собрать: вложить группу в группу
+        // Photoshop из скрипта не даёт.
+        var slideGroups = null;
         var group = null;
-        if (CFG.slidesGroup) {
+
+        if (wantSlideGroups(CFG, ratioLabelFor(CFG, SW))) {
+            slideGroups = makeSlideGroups(doc, CFG, N, SW, H);
+        } else if (CFG.slidesGroup) {
             group = doc.layerSets.add();
             group.name = CFG.slidesGroup;
         }
@@ -762,7 +833,10 @@ app.bringToFront();
                         placeAtPoint(lyr, cx, cy, CFG.photoLongSide, angle);
                     }
 
-                    if (group !== null) { lyr.move(group, ElementPlacement.INSIDE); }
+                    // в свою подгруппу, если она есть, иначе в общую Slides
+                    var box = (slideGroups !== null && slideGroups[slide])
+                            ? slideGroups[slide] : group;
+                    if (box !== null) { lyr.move(box, ElementPlacement.INSIDE); }
                     placedCount++;
                 } catch (ePlace) {
                     // битый или неподдерживаемый файл — пропускаем
@@ -775,7 +849,8 @@ app.bringToFront();
         if (CFG.channelMixer) {
             // активным должен быть верхний слой верхнего уровня, иначе
             // корректирующий слой окажется внутри группы Slides
-            doc.activeLayer = (group !== null) ? group : doc.layers[0];
+            doc.activeLayer = (group !== null) ? group
+                            : (slideGroups !== null ? slideGroups[0] : doc.layers[0]);
             try {
                 addChannelMixerMono(CFG.mixerMono);
             } catch (eMix) {
@@ -794,6 +869,7 @@ app.bringToFront();
             "кадр " + frame0.w + " x " + frame0.h + " px (" + CFG.aspectW + ":" + CFG.aspectH + "), " +
             "y = " + frame0.top + " / " + frame0.bottom + " в первом слайде; " +
             "направляющих: " + doc.guides.length +
+            (slideGroups !== null ? "; подгрупп с масками: " + slideGroups.length : "") +
             (placedCount ? "; фото: " + placedCount + " из " + files.length +
                            ", выравнивание — " + CFG.photoAlign : "") +
             (savedTo ? "; сохранено: " + savedTo.fsName : "")

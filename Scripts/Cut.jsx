@@ -43,10 +43,18 @@ var originalDoc = app.activeDocument;
 var docWidth  = Math.round(originalDoc.width.as("px"));
 var docHeight = Math.round(originalDoc.height.as("px"));
 
-// Ширина среза для каждого формата
+// Доля ширины слайда от высоты документа для каждого формата
+var RATIOS = [
+	{ label: "4:5",  k: 0.8    },
+	{ label: "3:4",  k: 0.75   },
+	{ label: "9:16", k: 0.5625 }
+];
+
 function sliceWidthFor(ratio) {
-	return (ratio === "4:5") ? Math.round(docHeight * 0.8)
-	                         : Math.round(docHeight * 0.75);
+	for (var i = 0; i < RATIOS.length; i++) {
+		if (RATIOS[i].label === ratio) { return Math.round(docHeight * RATIOS[i].k); }
+	}
+	return Math.round(docHeight * RATIOS[0].k);
 }
 
 // --- Диалог ---
@@ -56,26 +64,53 @@ dlg.alignChildren = "left";
 dlg.margins = 16;
 dlg.spacing = 10;
 
-dlg.add("statictext", undefined, "Выберите соотношение сторон:");
+// Каждый набор переключателей — в своём контейнере. ScriptUI группирует
+// radiobutton по родителю, и без этого выбор формата сбрасывался бы при
+// щелчке по «Все слайды».
+var pRatio = dlg.add("panel", undefined, "Соотношение сторон");
+pRatio.orientation = "column";
+pRatio.alignChildren = "left";
+pRatio.margins = [12, 16, 12, 12];
 
-var rb1 = dlg.add("radiobutton", undefined, "4:5");
-var rb2 = dlg.add("radiobutton", undefined, "3:4");
-rb1.value = true; // значение по умолчанию
+var rbRatio = [];
+for (var ri = 0; ri < RATIOS.length; ri++) {
+	rbRatio.push(pRatio.add("radiobutton", undefined,
+	             RATIOS[ri].label + "  (" + sliceWidthFor(RATIOS[ri].label) + " px)"));
+}
+rbRatio[0].value = true; // значение по умолчанию
+
+// Формат, под который документ собран: ширина делится на срез без остатка
+for (ri = 0; ri < RATIOS.length; ri++) {
+	if (docWidth % sliceWidthFor(RATIOS[ri].label) === 0) {
+		rbRatio[ri].value = true;
+		break;
+	}
+}
+
+function ratioValue() {
+	for (var j = 0; j < rbRatio.length; j++) {
+		if (rbRatio[j].value) { return RATIOS[j].label; }
+	}
+	return RATIOS[0].label;
+}
 
 var info = dlg.add("statictext", undefined, "");
 info.preferredSize.width = 260;
 
-dlg.add("statictext", undefined, "Какие слайды сохранять:");
+var pWhich = dlg.add("panel", undefined, "Какие слайды сохранять");
+pWhich.orientation = "column";
+pWhich.alignChildren = "left";
+pWhich.margins = [12, 16, 12, 12];
 
-var rbAll = dlg.add("radiobutton", undefined, "Все слайды");
-var rbSel = dlg.add("radiobutton", undefined, "Выбранные:");
+var rbAll = pWhich.add("radiobutton", undefined, "Все слайды");
+var rbSel = pWhich.add("radiobutton", undefined, "Выбранные:");
 rbAll.value = true;
 
-var listField = dlg.add("edittext", undefined, "");
+var listField = pWhich.add("edittext", undefined, "");
 listField.preferredSize.width = 260;
 listField.enabled = false;
 
-var hint = dlg.add("statictext", undefined, "Например: 1,3,5-7");
+var hint = pWhich.add("statictext", undefined, "Например: 1,3,5-7");
 
 var btnGroup = dlg.add("group");
 btnGroup.alignment = "right";
@@ -83,15 +118,15 @@ btnGroup.add("button", undefined, "OK", {name: "ok"});
 btnGroup.add("button", undefined, "Отмена", {name: "cancel"});
 
 function refresh() {
-	var ratio = rb1.value ? "4:5" : "3:4";
+	var ratio = ratioValue();
 	var sw = sliceWidthFor(ratio);
 	var n = Math.ceil(docWidth / sw);
-	info.text = "Срез " + sw + " px, всего слайдов: " + n;
+	var tail = (docWidth % sw === 0) ? "" : ", последний срез " + (docWidth % sw) + " px";
+	info.text = "Срез " + sw + " px, всего слайдов: " + n + tail;
 	listField.enabled = rbSel.value;
 }
 
-rb1.onClick = refresh;
-rb2.onClick = refresh;
+for (ri = 0; ri < rbRatio.length; ri++) { rbRatio[ri].onClick = refresh; }
 rbAll.onClick = refresh;
 rbSel.onClick = function () { refresh(); listField.active = true; };
 refresh();
@@ -100,7 +135,7 @@ if (dlg.show() !== 1) {
 	return;
 }
 
-var ratioChoice = rb1.value ? "4:5" : "3:4";
+var ratioChoice = ratioValue();
 var sliceWidth  = sliceWidthFor(ratioChoice);
 var numSlices   = Math.ceil(docWidth / sliceWidth);
 
