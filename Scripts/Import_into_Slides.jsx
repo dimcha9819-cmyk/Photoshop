@@ -13,8 +13,12 @@
  *      +-------+-------+
  *
  * Снимок 5 уходит в первый квадрант следующего слайда и так далее.
- * Каждое фото масштабируется по длинной стороне до заданного размера
- * (по умолчанию 1100 px) и центрируется в своём квадранте.
+ * Сетку можно сменить на 1 x 1 — тогда снимок занимает слайд целиком.
+ *
+ * Каждое фото центрируется в своей ячейке. По умолчанию масштаб идёт
+ * по длинной стороне до заданного размера, но в окне можно выбрать и
+ * другие режимы: заполнить ячейку по высоте, вписать целиком, закрыть
+ * целиком (DEF_FIT).
  *
  * Вставка идёт смарт-объектами: масштаб обратим, качество не теряется.
  * ------------------------------------------------------------------
@@ -27,7 +31,29 @@ app.bringToFront();
 // Расширения, которые считаем фотографиями
 var EXTENSIONS = ['jpg', 'jpeg', 'png', 'tif', 'tiff', 'psd', 'psb', 'webp'];
 
-var DEF_LONG_SIDE = 1100;   // длинная сторона снимка, px
+// Как вписывать снимок в ячейку:
+//   'height' — высота снимка равна высоте ячейки, по ширине может выходить
+//              за её края: кадр заполнен по вертикали без полей
+//   'fit'    — целиком внутрь ячейки, по узкой стороне остаются поля
+//   'fill'   — закрыть ячейку целиком, лишнее уходит за края
+//   'long'   — длинная сторона приводится к DEF_LONG_SIDE
+var DEF_FIT = 'long';
+
+// Сетка внутри слайда: 2 x 2 — четыре снимка, 1 x 1 — один на весь слайд
+var DEF_COLS = 2;
+var DEF_ROWS = 2;
+
+var DEF_LONG_SIDE = 1100;   // длинная сторона снимка для режима 'long', px
+
+// Форматы слайда: ширина = высота документа * k
+var RATIOS = [
+	{ label: '4:5',  k: 0.8    },
+	{ label: '3:4',  k: 0.75   },
+	{ label: '9:16', k: 0.5625 }
+];
+
+// Префикс групп, которые Slides.jsx делает для масок по слайдам
+var SLIDE_PREFIX  = 'Slide ';
 var DEF_JITTER    = 0;      // случайный сдвиг, % от квадранта
 var DEF_ROTATE    = false;  // случайный небольшой поворот
 var ROTATE_MAX    = 6;      // максимальный угол поворота, градусы
@@ -75,7 +101,7 @@ function main() {
 		var W = Math.round(doc.width.as('px'));
 		var H = Math.round(doc.height.as('px'));
 
-		var detected = detectSlides(W, H);
+		var detected = detectSlides(doc, W, H);
 
 		var opts = askOptions(W, H, detected);
 		if (opts === null) { return; }
@@ -96,16 +122,109 @@ function main() {
 
 // ---------- определение раскладки слайдов ----------
 
-// Документ insta_guided_2026: ширина кратна ширине кадра,
-// кадр = высота * 0.8 (4:5) или высота * 0.75 (3:4)
-function detectSlides(W, H) {
+// Сколько групп Slide NN в документе: берём наибольший номер, так что
+// пропуски в середине не занижают счёт
+function countSlideGroups(doc) {
+	var max = 0;
 
-	var candidates = [Math.round(H * 0.8), Math.round(H * 0.75)];
+	function scan(container) {
+		for (var i = 0; i < container.layerSets.length; i++) {
+			var g = container.layerSets[i];
+			if (g.name.indexOf(SLIDE_PREFIX) === 0) {
+				var m = g.name.match(/(\d+)\s*$/);
+				if (m) {
+					var n = parseInt(m[1], 10);
+					if (n > max) { max = n; }
+				}
+			}
+			scan(g);
+		}
+	}
 
-	for (var i = 0; i < candidates.length; i++) {
-		var sw = candidates[i];
-		if (sw > 0 && W % sw === 0) {
-			return { width: sw, count: W / sw };
+	scan(doc);
+	return max;
+}
+
+// Группы Slide NN, разложенные по номеру слайда. null — таких групп нет.
+function findSlideGroups(doc, count) {
+	var found = [];
+	found.length = count;
+	var any = false;
+
+	function scan(container) {
+		for (var i = 0; i < container.layerSets.length; i++) {
+			var g = container.layerSets[i];
+			if (g.name.indexOf(SLIDE_PREFIX) === 0) {
+				var m = g.name.match(/(\d+)\s*$/);
+				if (m) {
+					var n = parseInt(m[1], 10) - 1;
+					if (n >= 0 && n < count && !found[n]) { found[n] = g; any = true; }
+				}
+			}
+			scan(g);
+		}
+	}
+
+	scan(doc);
+	return any ? found : null;
+}
+
+
+// Шаг вертикальных направляющих: самое частое расстояние между соседними.
+// Slides.jsx ставит их по границам и центрам слайдов, то есть с шагом
+// в половину ширины слайда.
+function guideStep(doc) {
+	var xs = [];
+	var i;
+	for (i = 0; i < doc.guides.length; i++) {
+		if (doc.guides[i].direction === Direction.VERTICAL) {
+			xs.push(Math.round(doc.guides[i].coordinate.as('px')));
+		}
+	}
+	if (xs.length < 3) { return 0; }
+
+	xs.sort(function (a, b) { return a - b; });
+
+	var counts = {};
+	var best = 0, bestN = 0;
+	for (i = 1; i < xs.length; i++) {
+		var d = xs[i] - xs[i - 1];
+		if (d <= 0) { continue; }
+		counts[d] = (counts[d] || 0) + 1;
+		if (counts[d] > bestN) { bestN = counts[d]; best = d; }
+	}
+	return best;
+}
+
+// Ширина слайда и их количество. Источники по убыванию надёжности:
+//   1. группы Slide NN — их число и есть число слайдов;
+//   2. направляющие — шаг в половину ширины слайда;
+//   3. пропорции из RATIOS — последнее средство: холст 28800 px делится
+//      без остатка и на 1920, и на 1440, и по одному размеру не понять,
+//      что это — пятнадцать слайдов 3:4 или двадцать 9:16.
+function detectSlides(doc, W, H) {
+
+	var n = countSlideGroups(doc);
+	if (n > 0 && W % n === 0) {
+		return { width: W / n, count: n, how: 'по группам слайдов' };
+	}
+
+	var step = guideStep(doc);
+	if (step > 0) {
+		var candidates = [step * 2, step];
+		for (var c = 0; c < candidates.length; c++) {
+			var sw = candidates[c];
+			if (sw > 0 && W % sw === 0 && W / sw > 1) {
+				return { width: sw, count: W / sw, how: 'по направляющим' };
+			}
+		}
+	}
+
+	for (var i = 0; i < RATIOS.length; i++) {
+		var rw = Math.round(H * RATIOS[i].k);
+		if (rw > 0 && W % rw === 0) {
+			return { width: rw, count: W / rw,
+			         how: 'по пропорциям ' + RATIOS[i].label };
 		}
 	}
 	return null;
@@ -187,11 +306,42 @@ function askOptions(W, H, detected) {
 	var slidesHint = gSlides.add('statictext', undefined, '');
 	slidesHint.preferredSize.width = 240;
 
+	var gGrid = p2.add('group');
+	gGrid.add('statictext', undefined, 'Сетка в слайде:').preferredSize.width = 110;
+	var colsField = gGrid.add('edittext', undefined, String(DEF_COLS));
+	colsField.preferredSize.width = 34;
+	gGrid.add('statictext', undefined, 'x');
+	var rowsField = gGrid.add('edittext', undefined, String(DEF_ROWS));
+	rowsField.preferredSize.width = 34;
+	var gridHint = gGrid.add('statictext', undefined, '');
+	gridHint.preferredSize.width = 200;
+
+	var FITS = [
+		{ key: 'height', label: 'Заполнить по высоте ячейки' },
+		{ key: 'fit',    label: 'Вписать целиком' },
+		{ key: 'fill',   label: 'Закрыть ячейку целиком' },
+		{ key: 'long',   label: 'По длинной стороне' }
+	];
+
+	var gFit = p2.add('group');
+	gFit.add('statictext', undefined, 'Размер снимка:').preferredSize.width = 110;
+	var fitList = gFit.add('dropdownlist', undefined, (function () {
+		var out = [];
+		for (var k = 0; k < FITS.length; k++) { out.push(FITS[k].label); }
+		return out;
+	})());
+	fitList.preferredSize.width = 250;
+	fitList.selection = 0;
+	for (var fi = 0; fi < FITS.length; fi++) {
+		if (FITS[fi].key === DEF_FIT) { fitList.selection = fi; break; }
+	}
+
 	var gLong = p2.add('group');
-	gLong.add('statictext', undefined, 'Длинная сторона:').preferredSize.width = 110;
+	var longName = gLong.add('statictext', undefined, 'Длинная сторона:');
+	longName.preferredSize.width = 110;
 	var longField = gLong.add('edittext', undefined, String(DEF_LONG_SIDE));
 	longField.preferredSize.width = 60;
-	gLong.add('statictext', undefined, 'px');
+	var longUnit = gLong.add('statictext', undefined, 'px');
 
 	var gJit = p2.add('group');
 	gJit.add('statictext', undefined, 'Разброс:').preferredSize.width = 110;
@@ -213,17 +363,41 @@ function askOptions(W, H, detected) {
 		return (isNaN(n) || n < 1) ? 1 : n;
 	}
 
+	function gridCols() {
+		var v = parseInt(colsField.text, 10);
+		return (isNaN(v) || v < 1) ? 1 : v;
+	}
+
+	function gridRows() {
+		var v = parseInt(rowsField.text, 10);
+		return (isNaN(v) || v < 1) ? 1 : v;
+	}
+
+	function fitKey() { return FITS[fitList.selection.index].key; }
+
 	function refresh() {
 		var n = slideCount();
-		var qw = Math.round(W / n / 2);
-		var qh = Math.round(H / 2);
-		slidesHint.text = 'квадрант ' + qw + ' × ' + qh + ' px, мест: ' + (n * 4);
+		var cols = gridCols();
+		var rows = gridRows();
+		var per = cols * rows;
+
+		var qw = Math.round(W / n / cols);
+		var qh = Math.round(H / rows);
+
+		gridHint.text = (per === 1) ? 'снимок на весь слайд' : (per + ' на слайд');
+		slidesHint.text = 'ячейка ' + qw + ' × ' + qh + ' px, мест: ' + (n * per);
 		lJit.text = Math.round(sJit.value) + ' %';
+
+		// размер в пикселях нужен только режиму «по длинной стороне»
+		var byLong = (fitKey() === 'long');
+		longName.enabled  = byLong;
+		longField.enabled = byLong;
+		longUnit.enabled  = byLong;
 
 		if (chosen === null) {
 			countLbl.text = '';
 		} else {
-			var cap = n * 4;
+			var cap = n * per;
 			var tail = '';
 			if (found > cap) {
 				tail = WRAP_AROUND
@@ -257,7 +431,10 @@ function askOptions(W, H, detected) {
 	};
 
 	slidesField.onChanging = refresh;
-	sJit.onChanging = refresh;
+	colsField.onChanging   = refresh;
+	rowsField.onChanging   = refresh;
+	fitList.onChange       = refresh;
+	sJit.onChanging        = refresh;
 	refresh();
 
 	if (dlg.show() !== 1) { return null; }
@@ -268,14 +445,18 @@ function askOptions(W, H, detected) {
 	}
 
 	var longSide = parseInt(longField.text, 10);
-	if (isNaN(longSide) || longSide < 1) {
+	if (fitKey() === 'long' && (isNaN(longSide) || longSide < 1)) {
 		alert('Длинная сторона задана неверно.');
 		return null;
 	}
+	if (isNaN(longSide) || longSide < 1) { longSide = DEF_LONG_SIDE; }
 
 	return {
 		folder:   chosen,
 		slides:   slideCount(),
+		cols:     gridCols(),
+		rows:     gridRows(),
+		fit:      fitKey(),
 		longSide: longSide,
 		jitter:   Math.round(sJit.value) / 100,
 		rotate:   cbRot.value
@@ -288,13 +469,25 @@ function askOptions(W, H, detected) {
 function layout(doc, W, H, files, opts) {
 
 	var slideW = W / opts.slides;
-	var quadW  = slideW / 2;
-	var quadH  = H / 2;
+	var cols = Math.max(1, opts.cols);
+	var rows = Math.max(1, opts.rows);
 
-	var capacity = opts.slides * 4;
+	var quadW  = slideW / cols;
+	var quadH  = H / rows;
+
+	// размер ячейки нужен и при вписывании снимка
+	opts.cellW = quadW;
+	opts.cellH = quadH;
+
+	var perSlide = cols * rows;
+	var capacity = opts.slides * perSlide;
+
+	// Если документ собран с масками по слайдам, снимок должен лечь
+	// в группу своего слайда — иначе маска его не обрежет
+	var slideGroups = findSlideGroups(doc, opts.slides);
 
 	var group = null;
-	if (GROUP_NAME !== '') {
+	if (slideGroups === null && GROUP_NAME !== '') {
 		group = doc.layerSets.add();
 		group.name = GROUP_NAME;
 	}
@@ -303,12 +496,12 @@ function layout(doc, W, H, files, opts) {
 
 		if (i >= capacity && !WRAP_AROUND) { break; }
 
-		var seat  = i % capacity;          // место в общей сетке слайдов
-		var slide = Math.floor(seat / 4);  // номер слайда
-		var q     = seat % 4;              // квадрант: 0 1 / 2 3
+		var seat  = i % capacity;                 // место в общей сетке слайдов
+		var slide = Math.floor(seat / perSlide);  // номер слайда
+		var q     = seat % perSlide;              // ячейка внутри слайда
 
-		var col = q % 2;
-		var row = Math.floor(q / 2);
+		var col = q % cols;
+		var row = Math.floor(q / cols);
 
 		var cx = slide * slideW + (col + 0.5) * quadW;
 		var cy = (row + 0.5) * quadH;
@@ -318,14 +511,27 @@ function layout(doc, W, H, files, opts) {
 			cy += (Math.random() - 0.5) * quadH * opts.jitter;
 		}
 
-		placePhoto(doc, files[i], cx, cy, opts, group);
+		var box = (slideGroups !== null && slideGroups[slide])
+		        ? slideGroups[slide] : group;
+
+		placePhoto(doc, files[i], cx, cy, opts, box);
 	}
 
 	doc.selection.deselect();
 }
 
 
-// Вставка снимка смарт-объектом, масштаб по длинной стороне
+// Во сколько раз увеличить снимок lw x lh, чтобы он лёг в ячейку
+// cellW x cellH по выбранному режиму. Возвращает проценты.
+function scaleFor(mode, lw, lh, cellW, cellH, longSide) {
+	if (mode === 'height') { return cellH / lh * 100; }
+	if (mode === 'fit')    { return Math.min(cellW / lw, cellH / lh) * 100; }
+	if (mode === 'fill')   { return Math.max(cellW / lw, cellH / lh) * 100; }
+	return longSide / Math.max(lw, lh) * 100;   // 'long'
+}
+
+
+// Вставка снимка смарт-объектом с центрированием в ячейке
 function placePhoto(doc, file, cx, cy, opts, group) {
 
 	app.activeDocument = doc;
@@ -344,8 +550,8 @@ function placePhoto(doc, file, cx, cy, opts, group) {
 	var lh = b[3].as('px') - b[1].as('px');
 	if (lw < 1 || lh < 1) { return; }
 
-	// Длинная сторона приводится к заданному размеру, пропорции сохраняются
-	var scale = opts.longSide / Math.max(lw, lh) * 100;
+	// Пропорции сохраняются всегда, меняется только способ вписывания
+	var scale = scaleFor(opts.fit, lw, lh, opts.cellW, opts.cellH, opts.longSide);
 	lyr.resize(scale, scale, AnchorPosition.MIDDLECENTER);
 
 	if (opts.rotate) {

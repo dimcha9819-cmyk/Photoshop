@@ -18,7 +18,9 @@
  *        • групп нет — занятым считается слайд, в который попадает
  *          центр уже лежащего слоя. Слои во весь холст (фон, заливки)
  *          в расчёт не идут.
- *   4. Вставляет снимки и вписывает каждый в поля своего слайда.
+ *   4. Вставляет снимки, центрирует в слайде и по умолчанию заполняет
+ *      его ПО ВЫСОТЕ: полей сверху и снизу нет, по ширине снимок может
+ *      выходить за края. Режим меняется настройкой PLACE_MODE.
  *
  * Окно с настройками появляется, только если что-то не сходится:
  * раскладку определить не удалось или свободных слайдов меньше, чем
@@ -62,10 +64,13 @@ var ASK_OPTIONS = 'auto';
 //   false — подряд с первого
 var ONLY_FREE = true;
 
-// Как вписывать снимок:
-//   'fit'  — целиком в поля слайда, пропорции сохраняются
-//   'long' — длинная сторона приводится к LONG_SIDE
-var PLACE_MODE = 'fit';
+// Как вписывать снимок в слайд, пропорции сохраняются всегда:
+//   'height' — высота снимка равна высоте слайда: полей сверху и снизу
+//              нет, по ширине снимок может выходить за края слайда
+//   'fit'    — целиком в поля слайда
+//   'fill'   — закрыть слайд целиком, лишнее уходит за края
+//   'long'   — длинная сторона приводится к LONG_SIDE
+var PLACE_MODE = 'height';
 var MARGIN_PCT = 7.8125;    // поля слайда для режима 'fit', %
 var LONG_SIDE  = 1100;      // длинная сторона для режима 'long', px
 
@@ -142,12 +147,84 @@ var OVERFLOW_WRAP = false;
 
     // ---------------------------------------------------------- раскладка
 
-    // Ширина слайда: формат, при котором холст делится без остатка
-    function detectSlideWidth(W, H) {
+    // Сколько групп Slide NN в документе: берём наибольший номер, так что
+    // пропуски в середине не занижают счёт
+    function countSlideGroups(doc) {
+        var max = 0;
+
+        function scan(container) {
+            for (var i = 0; i < container.layerSets.length; i++) {
+                var g = container.layerSets[i];
+                if (g.name.indexOf(MASK_PREFIX) === 0) {
+                    var m = g.name.match(/(\d+)\s*$/);
+                    if (m) {
+                        var n = parseInt(m[1], 10);
+                        if (n > max) { max = n; }
+                    }
+                }
+                scan(g);
+            }
+        }
+
+        scan(doc);
+        return max;
+    }
+
+    // Шаг вертикальных направляющих: самое частое расстояние между соседними
+    function guideStep(doc) {
+        var xs = [];
+        var i;
+        for (i = 0; i < doc.guides.length; i++) {
+            var g = doc.guides[i];
+            if (g.direction === Direction.VERTICAL) {
+                xs.push(Math.round(g.coordinate.as('px')));
+            }
+        }
+        if (xs.length < 3) { return 0; }
+
+        xs.sort(function (a, b) { return a - b; });
+
+        var counts = {};
+        var best = 0, bestN = 0;
+        for (i = 1; i < xs.length; i++) {
+            var d = xs[i] - xs[i - 1];
+            if (d <= 0) { continue; }
+            counts[d] = (counts[d] || 0) + 1;
+            if (counts[d] > bestN) { bestN = counts[d]; best = d; }
+        }
+        return best;
+    }
+
+    // Ширина слайда. Источники по убыванию надёжности:
+    //   1. группы Slide NN — их число и есть число слайдов;
+    //   2. направляющие — Slides.jsx ставит их по границам и центрам
+    //      слайдов, то есть с шагом в половину ширины;
+    //   3. пропорции из RATIOS — последнее средство: холст вроде
+    //      28800 px делится без остатка и на 1920, и на 1440, и угадать
+    //      по одному только размеру нельзя.
+    function detectSlideWidth(doc, W, H) {
+
+        var n = countSlideGroups(doc);
+        if (n > 0 && W % n === 0) {
+            return { width: W / n, count: n, how: 'по группам слайдов' };
+        }
+
+        var step = guideStep(doc);
+        if (step > 0) {
+            var candidates = [step * 2, step];
+            for (var c = 0; c < candidates.length; c++) {
+                var sw = candidates[c];
+                if (sw > 0 && W % sw === 0 && W / sw > 1) {
+                    return { width: sw, count: W / sw, how: 'по направляющим' };
+                }
+            }
+        }
+
         for (var i = 0; i < RATIOS.length; i++) {
-            var sw = Math.round(H * RATIOS[i].k);
-            if (sw > 0 && W % sw === 0) {
-                return { width: sw, count: W / sw, label: RATIOS[i].label };
+            var rw = Math.round(H * RATIOS[i].k);
+            if (rw > 0 && W % rw === 0) {
+                return { width: rw, count: W / rw,
+                         how: 'по пропорциям ' + RATIOS[i].label };
             }
         }
         return null;
@@ -245,18 +322,24 @@ var OVERFLOW_WRAP = false;
         return app.activeDocument.activeLayer;
     }
 
+    // Масштаб в процентах по выбранному режиму
+    function scaleFor(lw, lh, slideW, H) {
+        if (PLACE_MODE === 'height') { return H / lh * 100; }
+        if (PLACE_MODE === 'fill')   { return Math.max(slideW / lw, H / lh) * 100; }
+        if (PLACE_MODE === 'long')   { return LONG_SIDE / Math.max(lw, lh) * 100; }
+
+        var boxW = slideW - slideW * MARGIN_PCT / 100 * 2;
+        var boxH = H - H * MARGIN_PCT / 100 * 2;
+        return Math.min(boxW / lw, boxH / lh) * 100;   // 'fit'
+    }
+
     // Вписать слой в прямоугольник слайда и отцентрировать по нему
     function fitToSlide(layer, slideIndex, slideW, H) {
         var b = layerBox(layer);
         if (b.w < 1 || b.h < 1) { return; }
 
         var left = slideIndex * slideW;
-        var boxW = slideW - slideW * MARGIN_PCT / 100 * 2;
-        var boxH = H - H * MARGIN_PCT / 100 * 2;
-
-        var scale = (PLACE_MODE === 'long')
-                  ? LONG_SIDE / Math.max(b.w, b.h) * 100
-                  : Math.min(boxW / b.w, boxH / b.h) * 100;
+        var scale = scaleFor(b.w, b.h, slideW, H);
 
         layer.resize(scale, scale, AnchorPosition.MIDDLECENTER);
 
@@ -270,7 +353,7 @@ var OVERFLOW_WRAP = false;
     // ------------------------------------------------------------- диалог
 
     // Показывается, только когда что-то не сходится
-    function askOptions(doc, W, H, slideW, count, lay) {
+    function askOptions(doc, W, H, slideW, count, lay, detected) {
 
         var dlg = new Window('dialog', 'Разместить фотографии');
         dlg.orientation = 'column';
@@ -291,6 +374,9 @@ var OVERFLOW_WRAP = false;
         var widthField = gw.add('edittext', undefined, String(slideW));
         widthField.preferredSize.width = 70;
         gw.add('statictext', undefined, 'px');
+        var wHint = gw.add('statictext', undefined,
+                           detected ? '(' + detected.how + ')' : '(определить не удалось)');
+        wHint.preferredSize.width = 200;
 
         var cbFree = p.add('checkbox', undefined,
                            'Только на свободные слайды (иначе подряд с первого)');
@@ -358,7 +444,7 @@ var OVERFLOW_WRAP = false;
         var W = Math.round(doc.width.as('px'));
         var H = Math.round(doc.height.as('px'));
 
-        var detected = detectSlideWidth(W, H);
+        var detected = detectSlideWidth(doc, W, H);
         var slideW = detected ? detected.width : Math.round(H * RATIOS[0].k);
         var lay = layout(doc, W, H, slideW);
         var onlyFree = ONLY_FREE;
@@ -370,7 +456,7 @@ var OVERFLOW_WRAP = false;
                         (files.length > places && !OVERFLOW_WRAP)));
 
         if (needAsk) {
-            var ans = askOptions(doc, W, H, slideW, files.length, lay);
+            var ans = askOptions(doc, W, H, slideW, files.length, lay, detected);
             if (ans === null) { return; }
             slideW   = ans.slideWidth;
             onlyFree = ans.onlyFree;

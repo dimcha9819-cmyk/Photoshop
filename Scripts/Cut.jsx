@@ -10,6 +10,9 @@ var NAME_PREFIX = true;
 var PAD_WIDTH   = 2;
 
 var JPEG_QUALITY = 10;      // 1..12
+
+// Префикс групп, которые Slides.jsx делает для масок по слайдам
+var SLIDE_PREFIX = 'Slide ';
 // =====================================================
 
 
@@ -57,6 +60,70 @@ function sliceWidthFor(ratio) {
 	return Math.round(docHeight * RATIOS[0].k);
 }
 
+// Сколько групп Slide NN в документе: берём наибольший номер
+function countSlideGroups(doc) {
+	var max = 0;
+	function scan(container) {
+		for (var i = 0; i < container.layerSets.length; i++) {
+			var g = container.layerSets[i];
+			if (g.name.indexOf(SLIDE_PREFIX) === 0) {
+				var m = g.name.match(/(\d+)\s*$/);
+				if (m) {
+					var n = parseInt(m[1], 10);
+					if (n > max) { max = n; }
+				}
+			}
+			scan(g);
+		}
+	}
+	scan(doc);
+	return max;
+}
+
+// Шаг вертикальных направляющих: Slides.jsx ставит их по границам и
+// центрам слайдов, то есть с шагом в половину ширины слайда
+function guideStep(doc) {
+	var xs = [];
+	var i;
+	for (i = 0; i < doc.guides.length; i++) {
+		if (doc.guides[i].direction === Direction.VERTICAL) {
+			xs.push(Math.round(doc.guides[i].coordinate.as('px')));
+		}
+	}
+	if (xs.length < 3) { return 0; }
+
+	xs.sort(function (a, b) { return a - b; });
+
+	var counts = {};
+	var best = 0, bestN = 0;
+	for (i = 1; i < xs.length; i++) {
+		var d = xs[i] - xs[i - 1];
+		if (d <= 0) { continue; }
+		counts[d] = (counts[d] || 0) + 1;
+		if (counts[d] > bestN) { bestN = counts[d]; best = d; }
+	}
+	return best;
+}
+
+// Ширина слайда по самому документу, без догадок о пропорциях
+function detectSlideWidth(doc, W, H) {
+	var n = countSlideGroups(doc);
+	if (n > 0 && W % n === 0) { return { width: W / n, count: n }; }
+
+	var step = guideStep(doc);
+	if (step > 0) {
+		var candidates = [step * 2, step];
+		for (var c = 0; c < candidates.length; c++) {
+			var sw = candidates[c];
+			if (sw > 0 && W % sw === 0 && W / sw > 1) {
+				return { width: sw, count: W / sw };
+			}
+		}
+	}
+	return null;
+}
+
+
 // --- Диалог ---
 var dlg = new Window("dialog", "Выбор формата нарезки");
 dlg.orientation = "column";
@@ -79,11 +146,32 @@ for (var ri = 0; ri < RATIOS.length; ri++) {
 }
 rbRatio[0].value = true; // значение по умолчанию
 
-// Формат, под который документ собран: ширина делится на срез без остатка
-for (ri = 0; ri < RATIOS.length; ri++) {
-	if (docWidth % sliceWidthFor(RATIOS[ri].label) === 0) {
-		rbRatio[ri].value = true;
-		break;
+// Формат, под который собран документ. По одним пропорциям не понять:
+// холст 28800 px делится без остатка и на 1920 (пятнадцать слайдов 3:4),
+// и на 1440 (двадцать 9:16). Поэтому сперва спрашиваем сам документ —
+// группы Slide NN и направляющие, — и лишь потом считаем доли высоты.
+var detectedW = detectSlideWidth(originalDoc, docWidth, docHeight);
+var matched = false;
+
+if (detectedW !== null) {
+	for (ri = 0; ri < RATIOS.length; ri++) {
+		if (sliceWidthFor(RATIOS[ri].label) === detectedW.width) {
+			rbRatio[ri].value = true;
+			matched = true;
+			break;
+		}
+	}
+}
+
+// Документ не отвечает или собран с нестандартной шириной слайда —
+// возвращаемся к прежнему способу: первый формат, на который ширина
+// холста делится без остатка
+if (!matched) {
+	for (ri = 0; ri < RATIOS.length; ri++) {
+		if (docWidth % sliceWidthFor(RATIOS[ri].label) === 0) {
+			rbRatio[ri].value = true;
+			break;
+		}
 	}
 }
 
