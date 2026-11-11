@@ -1,0 +1,75 @@
+services:
+  stories:
+    # Стоковий образ без збірки і без pip: скрипт використовує лише стандартну бібліотеку.
+    # Образ python:3.12-slim існує для amd64, arm64 і armv7, тож підходить для більшості NAS.
+    image: python:3.12-slim
+    container_name: stories-poster
+    restart: unless-stopped            # NAS перезавантажується після оновлень прошивки
+    working_dir: /app
+    # Скрипт ідемпотентний: щогодини доповнює чергу в Buffer і прибирає опубліковане.
+    init: true                         # коректно передає сигнал зупинки, контейнер зупиняється за секунди
+    # trap: на сигнал зупинки вийти з кодом 0, інакше Synology показує «неочікувано завершив роботу»
+    command: ["sh", "-c", "trap 'exit 0' TERM INT; while true; do python /app/story_poster.py; sleep 3600 & wait $$!; done"]
+
+    # Портів немає: контейнер лише сам звертається до Buffer і Cloudinary.
+    # NAS у інтернет нічого не відкриває.
+
+    volumes:
+      - /volume1/docker/Stories/app:/app:ro      # код тільки для читання
+      - /volume1/docker/Stories/data:/data       # фото, state.json, журнал: одна тека для Hyper Backup
+
+    env_file:
+      - stories.env                              # ключі й налаштування, лежить поруч із compose.yaml (ім'я без крапки: File Station і Windows ховають .env)
+
+    environment:
+      TZ: Europe/Kyiv
+
+    mem_limit: 128m                              # страховка для NAS з малим обсягом пам'яті
+    read_only: true                              # коренева файлова система лише для читання; писати можна тільки в /data і /tmp
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    logging:                                     # журнали не ростуть безмежно
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"
+
+  ui:
+    # Веб-інтерфейс керування теками: черга, порядок, завантаження фото, кнопка «Запустити зараз».
+    # Доступний лише в домашній мережі: http://aperion:8095
+    image: python:3.12-slim
+    container_name: stories-ui
+    restart: unless-stopped
+    working_dir: /app
+    init: true
+    # Pillow потрібен лише для малих попередніх переглядів фото; ставиться один раз у /data/pylib (потрібен інтернет при першому запуску).
+    # Якщо не вдалося, сторінки працюють, але підвантажують повні фото.
+    command: ["sh", "-c", "[ -d /data/pylib/PIL ] || pip install -q --disable-pip-version-check --no-cache-dir --target /data/pylib pillow==13.0.0 || true; export PYTHONPATH=/data/pylib; exec python /app/ui.py"]
+    ports:
+      - "8095:8095"                                # порти нижче 8000 Synology займає сам
+    volumes:
+      - /volume1/docker/Stories/app:/app:ro
+      - /volume1/docker/Stories/data:/data
+    env_file:
+      - stories.env
+    environment:
+      TZ: Europe/Kyiv
+    mem_limit: 256m
+    read_only: true                              # коренева файлова система лише для читання; писати можна тільки в /data і /tmp
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    logging:                                     # журнали не ростуть безмежно
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"
+    healthcheck:                                 # у Container Manager видно, якщо веб-інтерфейс завис
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8095/healthz', timeout=4)"]
+      interval: 60s
+      timeout: 6s
+      retries: 3
+      start_period: 60s

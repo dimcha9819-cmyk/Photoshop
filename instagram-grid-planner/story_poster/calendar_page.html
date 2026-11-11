@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="uk"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Календар</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%232f5be0'/%3E%3Crect x='16' y='16' width='32' height='32' rx='5' fill='none' stroke='%23fff' stroke-width='5'/%3E%3C/svg%3E">
+<style>
+:root{--bg:#0f0f10;--card:#1a1a1c;--card2:#232326;--text:#ededed;--muted:#a0a0a8;--line:#2a2a2d;--accent:#2f5be0;--accent-hover:#2549b8;--accent-text:#7d9cff;--danger:#ff6b5e;--post:#e6b450;color-scheme:dark}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;font:14px/1.45 Roboto,"Helvetica Neue",Arial,sans-serif;background:var(--bg);color:var(--text);overflow:hidden}
+.app{display:grid;grid-template-columns:300px minmax(0,1fr);height:100vh}
+.col{overflow-y:auto;padding:18px;scrollbar-width:thin;scrollbar-color:#3a3a3e transparent}
+.left{background:var(--card);border-right:1px solid var(--line)}
+h1{font-size:20px;margin:0 0 4px}
+h2{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:22px 0 8px;font-weight:600}
+.sub{color:var(--muted);font-size:12px}
+button,.btn{font:inherit;font-weight:600;border:1px solid var(--accent);border-radius:8px;padding:10px 16px;min-height:40px;background:var(--accent);color:#fff;cursor:pointer;width:100%;text-align:center;text-decoration:none;display:block}
+button:hover:not(:disabled),.btn:hover{background:var(--accent-hover);border-color:var(--accent-hover)}
+button.sec,.btn.sec{background:var(--card2);border-color:var(--line);color:var(--text);font-weight:500}
+button.sec:hover:not(:disabled),.btn.sec:hover{background:#2c2c30;border-color:var(--line)}
+.btn.cur{border-color:var(--accent);color:var(--accent-text);pointer-events:none}
+button:disabled{opacity:.45;cursor:default}
+.stack{display:flex;flex-direction:column;gap:8px;margin-top:14px}
+.fld{display:grid;grid-template-columns:1fr 96px;gap:8px;align-items:center;margin:6px 0;font-size:13px}
+.fld input{font:inherit;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:6px 8px;width:100%;color-scheme:dark}
+.wd{display:flex;gap:4px;margin:4px 0 6px}.wd label{flex:1;text-align:center;font-size:11px;color:var(--muted);cursor:pointer}.wd input{display:block;margin:0 auto 2px;accent-color:var(--accent)}
+.leg{display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--muted)}
+.leg span::before{content:"";display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:8px;vertical-align:-2px}
+.leg .s::before{background:var(--accent)}
+.leg .p::before{background:var(--post)}
+.leg .e::before{border:1.5px dashed var(--muted)}
+.leg .d::before{background:#555}
+.leg .f::before{border:1.5px dotted #6a6a72}
+.bar{display:flex;align-items:center;gap:10px;margin-bottom:10px;flex:none}
+.bar h2{margin:0;font-size:18px;text-transform:none;letter-spacing:0;color:var(--text);flex:1}
+.bar button{width:auto;min-height:34px;padding:4px 14px}
+main.col{display:flex;flex-direction:column;height:100vh;overflow:hidden;padding:14px 16px}
+.cal{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;flex:1;min-height:0}
+.dow{font-size:11px;align-self:end;color:var(--muted);text-align:center;text-transform:uppercase;letter-spacing:.05em;padding:2px 0}
+.day{background:var(--card);border:1px solid var(--line);border-radius:8px;min-height:0;padding:5px 6px;display:flex;flex-direction:column;gap:4px;min-width:0;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#3a3a3e transparent}
+.day.out{opacity:.35}
+.day.today{border-color:var(--accent)}
+.day .n{font-size:12px;color:var(--muted);font-weight:600}
+.day.today .n{color:var(--accent-text)}
+.evs{display:flex;flex-wrap:wrap;gap:4px;align-content:flex-start}
+.tile{width:calc(33.333% - 3px);min-width:44px;max-width:110px;border-radius:5px;overflow:hidden;background:var(--card2);border:1px solid var(--accent)}
+.tile .t{font-size:10px;line-height:15px;text-align:center;font-weight:600;color:#fff;background:var(--accent);white-space:nowrap;overflow:hidden}
+.tile img{display:block;width:100%;aspect-ratio:1;object-fit:cover;background:#222}
+.tile.p{border-color:var(--post)}.tile.p .t{background:var(--post);color:#1a1a1c}
+.tile.e{border-style:dashed;border-color:var(--muted)}.tile.e .t{background:transparent;color:var(--muted)}
+.tile.d{opacity:.38;filter:saturate(.5)}
+.tile.f{background:transparent;border:1px dotted #3a3a3e}.tile.f .t{background:transparent;color:var(--muted)}
+.tile.f.p{border-color:#5a4a22}.tile.f:not(.p){border-color:#27396e}
+.tile.f .fr{aspect-ratio:1;display:flex;align-items:center;justify-content:center;font-size:10px;color:#6a6a72;text-align:center;line-height:1.2}
+@media(max-width:1000px){body{overflow:auto}.app{display:block;height:auto}.col{overflow:visible;border:0}main.col{height:auto}.cal{flex:none}.day{min-height:90px}}
+</style></head><body>
+<div class="app">
+  <aside class="col left">
+    <h1>Календар</h1>
+    <div class="sub" id="tz"></div>
+    <div class="stack">
+      <a class="btn sec cur" href="/calendar/" aria-current="page">Календар</a>
+      <a class="btn sec" href="/planner/">Стрічка</a>
+      <a class="btn sec" href="/stories/">Історії</a>
+    </div>
+
+    <h2>Пости</h2>
+    <label class="fld">Раз на, днів<input type="number" id="pEvery" min="1" max="30"></label>
+    <label class="fld">Штук за день<input type="number" id="pPer" min="1" max="5"></label>
+    <label class="fld">Час<input type="time" id="pTime"></label>
+    <div class="sub">Дні тижня</div>
+    <div class="wd" id="pWd"><label><input type="checkbox" value="0">Пн</label><label><input type="checkbox" value="1">Вт</label><label><input type="checkbox" value="2">Ср</label><label><input type="checkbox" value="3">Чт</label><label><input type="checkbox" value="4">Пт</label><label><input type="checkbox" value="5">Сб</label><label><input type="checkbox" value="6">Нд</label></div>
+
+    <h2>Сторіс</h2>
+    <label class="fld">Раз на, днів<input type="number" id="sEvery" min="1" max="30"></label>
+    <label class="fld">Штук за день<input type="number" id="sPer" min="1" max="10"></label>
+    <label class="fld">Перша о<input type="time" id="sTime"></label>
+    <label class="fld">Черга наперед, днів<input type="number" id="sAhead" min="1" max="60"></label>
+    <div class="sub">Дні тижня</div>
+    <div class="wd" id="sWd"><label><input type="checkbox" value="0">Пн</label><label><input type="checkbox" value="1">Вт</label><label><input type="checkbox" value="2">Ср</label><label><input type="checkbox" value="3">Чт</label><label><input type="checkbox" value="4">Пт</label><label><input type="checkbox" value="5">Сб</label><label><input type="checkbox" value="6">Нд</label></div>
+    <div class="sub" id="sum" style="margin-top:10px"></div>
+
+    <div class="stack"><button id="save">Зберегти</button></div>
+    <div class="sub" id="msg" style="margin-top:8px;min-height:18px"></div>
+    <div class="sub">Нові налаштування діють для публікацій, які ще не заплановано в Buffer. Те, що вже в черзі Buffer, не змінюється.</div>
+
+    <h2>Позначки</h2>
+    <div class="leg">
+      <span class="s">Сторіс у черзі Buffer</span>
+      <span class="p">Пост у черзі Buffer</span>
+      <span class="e">Пунктир: очікує, орієнтовний час</span>
+      <span class="d">Приглушені: уже опубліковано</span>
+      <span class="f">Крапкова рамка: вільне вікно</span>
+    </div>
+  </aside>
+
+  <main class="col">
+    <div class="bar">
+      <button class="sec" id="prev">&larr;</button>
+      <h2 id="title"></h2>
+      <button class="sec" id="today">Сьогодні</button>
+      <button class="sec" id="next">&rarr;</button>
+    </div>
+    <div class="cal" id="cal"></div>
+  </main>
+</div>
+<script>
+const $=s=>document.querySelector(s);
+const MONTHS=['Січень','Лютий','Березень','Квітень','Травень','Червень','Липень','Серпень','Вересень','Жовтень','Листопад','Грудень'];
+const DOW=['Пн','Вт','Ср','Чт','Пт','Сб','Нд'];
+let tz='Europe/Kyiv',cur=new Date(),events={},conf=null;
+cur=new Date(cur.getFullYear(),cur.getMonth(),1);
+const say=t=>{$('#msg').textContent=t};
+const dkey=(iso)=>new Intl.DateTimeFormat('sv-SE',{timeZone:tz}).format(new Date(iso));   // YYYY-MM-DD in the poster's zone
+const hm=(iso)=>new Date(iso).toLocaleTimeString('uk-UA',{timeZone:tz,hour:'2-digit',minute:'2-digit'});
+const enc=encodeURIComponent, isImg=n=>/\.(jpe?g|png)$/i.test(n);
+// kind: s = story, p = post; state: q = in Buffer queue, e = expected, d = published
+function add(iso,kind,state,thumb,title,label){const k=dkey(iso);(events[k]=events[k]||[]).push({t:iso,kind,state,thumb,title,label:label===undefined?hm(iso):label})}
+const setWd=(k,v)=>document.querySelectorAll('#'+k+'Wd input').forEach(i=>i.checked=v.includes(+i.value));
+const getWd=k=>[...document.querySelectorAll('#'+k+'Wd input:checked')].map(i=>+i.value);
+function summary(){
+  const one=(name,every,per,wd)=>name+': '+per+' на день, '+(every>1?'раз на '+every+' дні':'щодня')+(wd.length<7?', лише '+wd.map(i=>DOW[i]).join(' '):'')+'. ';
+  $('#sum').textContent=one('Пости',+$('#pEvery').value,+$('#pPer').value,getWd('p'))+one('Сторіс',+$('#sEvery').value,+$('#sPer').value,getWd('s'));
+}
+document.addEventListener('input',summary);
+async function jget(u){try{const r=await fetch(u);return await r.json()}catch(e){return {}}}
+let lastSig='';
+async function load(){
+  const [sch,st,ps]=await Promise.all([jget('/api/schedule'),jget('/api/state'),jget('/api/posts/state')]);
+  const sig=JSON.stringify([sch,st,ps]);
+  if(sig===lastSig)return;                // nothing changed: no redraw, no flicker, no image requests
+  lastSig=sig;
+  if(sch.stories){conf=sch;tz=sch.tz||tz;$('#tz').textContent='Часовий пояс: '+tz;
+    $('#pEvery').value=sch.posts.every_days;$('#pPer').value=sch.posts.per_day;$('#pTime').value=sch.posts.time;setWd('p',sch.posts.weekdays);
+    $('#sEvery').value=sch.stories.every_days;$('#sPer').value=sch.stories.per_day;$('#sTime').value=sch.stories.time;$('#sAhead').value=sch.stories.days_ahead;setWd('s',sch.stories.weekdays);summary()}
+  events={};
+  const T='?w=180';
+  (st.scheduled||[]).forEach(i=>add(i.due,'s','q','/img/scheduled/'+enc(i.file)+T,'Сторіс '+i.file));
+  (st.waiting||[]).forEach(i=>add(i.expected,'s','e','/img/waiting/'+enc(i.name)+T,'Сторіс (очікує) '+i.name));
+  (st.history||[]).forEach(i=>add(i.due,'s','d','/img/posted/'+enc(i.file)+T,'Сторіс (опубліковано) '+i.file));
+  const first=a=>(a||[]).find(isImg);
+  (ps.scheduled||[]).forEach(i=>add(i.due,'p','q','/pimg/slot/'+enc(i.folder)+'/'+enc(first(i.images)||'')+T,'Пост, папка '+i.folder));
+  (ps.waiting||[]).forEach(i=>{if(i.expected&&!i.hidden)add(i.expected,'p','e','/pimg/slot/'+enc(i.folder)+'/'+enc(i.images[0]||'')+T,'Пост (очікує), папка '+i.folder)});
+  (ps.posted||[]).forEach(i=>{const m=/^(\d{4}-\d{2}-\d{2})/.exec(i.set);const th='/pimg/posted/'+enc(i.set)+'/'+enc(i.images[0]||'')+T;
+    if(i.due)add(i.due,'p','d',th,'Пост (опубліковано) '+i.set);
+    else if(m)add(m[1]+'T12:00:00Z','p','d',th,'Пост (опубліковано) '+i.set,'')});
+  render();
+}
+// free publication windows: the same rule as the poster (time, every N days, per day, weekdays), continued after the last planned item
+const addDays=(k,n)=>{const d=new Date(k+'T00:00:00Z');d.setUTCDate(d.getUTCDate()+n);return d.toISOString().slice(0,10)};
+const wdOf=k=>(new Date(k+'T00:00:00Z').getUTCDay()+6)%7;
+const toMin=h=>{const a=h.split(':');return +a[0]*60+ +a[1]};
+const fromMin=m=>String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0');
+function freeSlots(kind,endKey){
+  const r=conf&&conf[kind==='s'?'stories':'posts'];const out={};if(!r)return out;
+  const every=Math.max(1,+r.every_days||1),per=Math.max(1,+r.per_day||1),wd=new Set(r.weekdays||[0,1,2,3,4,5,6]),gap=kind==='s'?30:120,t0=toMin(r.time);
+  const nowIso=new Date().toISOString(),todayKey=dkey(nowIso),nowMin=toMin(hm(nowIso))+10;
+  const ok=(k,m)=>wd.has(wdOf(k))&&(k>todayKey||(k===todayKey&&m>=nowMin));
+  const put=(k,m)=>{(out[k]=out[k]||[]).push({t:k,kind,state:'f',label:fromMin(m),title:kind==='s'?'Вільне вікно для сторіс':'Вільне вікно для поста'})};
+  const all=[];Object.entries(events).forEach(([k,l])=>l.forEach(e=>{if(e.kind===kind&&e.state!=='d'&&e.label)all.push({k,m:toMin(e.label)})}));
+  let day=todayKey;
+  if(all.length){
+    const lastK=all.reduce((a,b)=>b.k>a?b.k:a,'0000');const same=all.filter(x=>x.k===lastK);
+    let cnt=same.length,m=Math.max(...same.map(x=>x.m));
+    while(cnt<per&&m+gap<1440){m+=gap;cnt++;if(lastK<=endKey&&ok(lastK,m))put(lastK,m)}
+    day=addDays(lastK,every);
+  }
+  for(let g=0;day<=endKey&&g<800;g++){
+    if(!ok(day,t0)){day=addDays(day,1);continue}
+    let m=t0;for(let j=0;j<per&&m<1440;j++,m+=gap)put(day,m);
+    day=addDays(day,every);
+  }
+  return out;
+}
+function render(){
+  $('#title').textContent=MONTHS[cur.getMonth()]+' '+cur.getFullYear();
+  const c=$('#cal');c.innerHTML='';
+  DOW.forEach(d=>{const e=document.createElement('div');e.className='dow';e.textContent=d;c.appendChild(e)});
+  const first=new Date(cur.getFullYear(),cur.getMonth(),1),offset=(first.getDay()+6)%7;
+  const start=new Date(first);start.setDate(1-offset);
+  const todayKey=new Intl.DateTimeFormat('sv-SE',{timeZone:tz}).format(new Date());
+  const weeks=Math.ceil((offset+new Date(cur.getFullYear(),cur.getMonth()+1,0).getDate())/7);
+  c.style.gridTemplateRows='auto repeat('+weeks+',minmax(0,1fr))';
+  const endD=new Date(start);endD.setDate(start.getDate()+weeks*7-1);
+  const endKey=endD.getFullYear()+'-'+String(endD.getMonth()+1).padStart(2,'0')+'-'+String(endD.getDate()).padStart(2,'0');
+  const fs=freeSlots('s',endKey),fp=freeSlots('p',endKey);
+  for(let i=0;i<weeks*7;i++){
+    const d=new Date(start);d.setDate(start.getDate()+i);
+    const k=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+    const cell=document.createElement('div');
+    cell.className='day'+(d.getMonth()!==cur.getMonth()?' out':'')+(k===todayKey?' today':'');
+    const n=document.createElement('div');n.className='n';n.textContent=d.getDate();cell.appendChild(n);
+    const mm=e=>e.label?toMin(e.label):720;
+    const list=[...(events[k]||[]),...(fs[k]||[]),...(fp[k]||[])].sort((a,b)=>mm(a)-mm(b)||(a.kind<b.kind?-1:1));
+    if(list.length){const box=document.createElement('div');box.className='evs';
+      list.forEach(ev=>{const t=document.createElement('div');t.className='tile '+(ev.kind==='p'?'p ':'')+ev.state;t.title=ev.title+(ev.label?' · '+ev.label:'');
+        const h=document.createElement('div');h.className='t';h.textContent=ev.label||(ev.kind==='p'?'Пост':'Сторіс');t.appendChild(h);
+        if(ev.state==='f'){const fr=document.createElement('div');fr.className='fr';fr.textContent='вільно';t.appendChild(fr);box.appendChild(t);return}
+        const im=document.createElement('img');im.alt='';im.src=ev.thumb;im.onerror=()=>{im.style.visibility='hidden'};t.appendChild(im);box.appendChild(t)});
+      cell.appendChild(box)}
+    c.appendChild(cell);
+  }
+}
+$('#prev').onclick=()=>{cur=new Date(cur.getFullYear(),cur.getMonth()-1,1);render()};
+$('#next').onclick=()=>{cur=new Date(cur.getFullYear(),cur.getMonth()+1,1);render()};
+$('#today').onclick=()=>{const n=new Date();cur=new Date(n.getFullYear(),n.getMonth(),1);render()};
+$('#save').onclick=async()=>{
+  const body={posts:{every_days:+$('#pEvery').value,per_day:+$('#pPer').value,time:$('#pTime').value,weekdays:getWd('p')},stories:{every_days:+$('#sEvery').value,per_day:+$('#sPer').value,time:$('#sTime').value,days_ahead:+$('#sAhead').value,weekdays:getWd('s')}};
+  try{const r=await fetch('/api/schedule',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const j=await r.json();
+    say(j.error?('Помилка: '+j.error):'Збережено');if(!j.error)load()}catch(e){say('Помилка зв’язку')}
+};
+load();
+setInterval(()=>{if(!document.hidden)load()},300000);   // every 5 minutes: lets the NAS disks sleep
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)load()});
+</script></body></html>

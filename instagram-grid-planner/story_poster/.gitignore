@@ -1,0 +1,5 @@
+.env
+stories.env
+stories/
+state.json
+*.log

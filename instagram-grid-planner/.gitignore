@@ -1,0 +1,7 @@
+feed_crops/
+data/
+*.env
+!*.env.example
+index.BACKUP_*.html
+story_poster/backup_*/
+__pycache__/

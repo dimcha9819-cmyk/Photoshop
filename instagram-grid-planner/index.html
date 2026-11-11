@@ -1,0 +1,911 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Instagram Grid Planner</title>
+<style>
+  :root {
+    --brand: #2EDDFC; --brand-dark: #014D5B;
+    --panel: #202020; --pill: #aaaaaa; --cell-bg: #e3e3e3; --blue: #0297fe;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: Roboto, "Helvetica Neue", Arial, sans-serif; background: #f4f4f4; color: #111; }
+  .app { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 24px; padding: 24px; }
+
+  /* ---- Phone mockup (drawn with CSS only, no image assets) ---- */
+  #phone { --ph: 861px; position: relative; width: 459px; height: var(--ph); background: #fff; flex: none; }
+  #phone.frame { background: #fff; border-radius: 64px; border: 14px solid #111; box-shadow: 0 0 0 3px #444; }
+  #phone.frame::before { content: ""; position: absolute; top: 8px; left: 50%; width: 110px; height: 26px; margin-left: -55px; background: #111; border-radius: 20px; z-index: 2; }
+  #phone.noframe { border: 1px solid #ccc; }
+  .screen { overflow-y: auto !important; scrollbar-width: none; }
+  .screen::-webkit-scrollbar { display: none; }
+  #phone.full { height: auto !important; }
+  #phone.full .screen { height: auto !important; max-height: none !important; overflow: visible !important; }
+  #phone.full .tray-bottom { position: static; }
+  #imageControls { max-height: 420px; overflow-y: auto; padding-right: 4px; }
+  .tray-top { display: flex; justify-content: space-between; padding: 12px 28px 6px; font-size: 12px; min-height: 36px; }
+  .tray-top.hidden, .tray-bottom.hidden { visibility: hidden; }
+  .screen { padding: 8px 12px 0; overflow: hidden; height: calc(var(--ph) - 151px); max-height: calc(var(--ph) - 151px); }
+  #phone.frame .screen { height: calc(var(--ph) - 171px); max-height: calc(var(--ph) - 171px); }
+  .tray-bottom { position: absolute; left: 0; right: 0; bottom: 0; display: flex; justify-content: space-between; padding: 12px 28px 18px; background: #fff; border-radius: 0 0 48px 48px; }
+  .hdr { display: flex; align-items: center; gap: 12px; }
+  .hdr .name { font-weight: 700; outline: none; min-width: 40px; }
+  .hdr .spacer { flex: 1; }
+  .tabs { display: flex; margin-top: 18px; }
+  .tabs > div { flex: 1; display: flex; flex-direction: column; align-items: center; }
+  .tabs .active::after { content: ""; display: block; height: 3px; width: 75%; background: #000; margin-top: 4px; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; margin-top: 6px; }
+  .cell { position: relative; aspect-ratio: 3 / 4; background: var(--cell-bg); background-size: cover; background-position: center; cursor: pointer; overflow: hidden; display: flex; align-items: center; justify-content: center; user-select: none; }
+  .cell.has-img .ph { display: none; }
+  .cell.dragging { opacity: .35; }
+  .cell.over { outline: 3px solid var(--brand); outline-offset: -3px; }
+  .cell .badge { position: absolute; top: 8px; right: 8px; width: 18px; height: 18px; filter: drop-shadow(0 0 2px rgba(0,0,0,.45)); }
+  svg.i { width: 1em; height: 1em; fill: currentColor; vertical-align: -0.125em; }
+  .ph svg { width: 32px; height: 32px; fill: #fff; }
+
+  /* ---- Feed-only view: no phone, grid fills the window ---- */
+  #gear { display: none; position: fixed; top: 10px; right: 12px; z-index: 20; background: var(--panel); color: #fff; border: 0; border-radius: 999px; padding: 8px 16px; font: 14px Georgia, serif; cursor: pointer; opacity: .9; }
+  body.feedonly { background: #fff; }
+  body.feedonly #gear { display: block; }
+  body.feedonly .app { display: flex; justify-content: center; padding: 0; gap: 0; }
+  body.feedonly #phone { --ph: 100vh; width: calc(459px * var(--u, .6)); max-width: 100%; height: 100vh; border: 0; border-radius: 0; box-shadow: none; }
+  body.feedonly #phone::before { display: none; }
+  body.feedonly .tray-top, body.feedonly .tray-bottom { display: none; }
+  body.feedonly .screen { height: 100vh !important; max-height: 100vh !important; padding: 12px 0 0; }
+  body.feedonly .hdr, body.feedonly .tabs { padding: 0 12px; }
+  body.feedonly .grid { grid-template-columns: repeat(var(--cols, 3), 1fr); }
+  body.feedonly .panel { display: none; position: fixed; top: 52px; right: 12px; z-index: 20; max-height: calc(100vh - 66px); overflow-y: auto; box-shadow: 0 8px 30px rgba(0,0,0,.6); }
+  body.feedonly.showpanel .panel { display: block; }
+  /* reference column: the real feed (feed_crops/NN.jpg) next to the planner */
+  #ref { display: none; }
+  /* phone screen: exactly 3 columns x 3 rows visible, the rest scrolls inside */
+  body.feedonly.cmp .app { display: grid; grid-template-columns: 1fr calc(459px * var(--u, .6)) 1fr; } /* main feed centered on the page, phone in the left free area */
+  body.feedonly.cmp #phone { justify-self: center; }
+  body.feedonly.cmp #ref { display: block; box-sizing: border-box; width: calc(100% - 24px); max-width: calc(640px * var(--u, .6)); justify-self: center; align-self: center; margin: 12px; background: #fff; border: 8px solid #111; border-radius: 30px; overflow: hidden; box-shadow: 0 0 0 2px #444; }
+  #ref .rt { box-sizing: border-box; padding: 12px 12px 8px; font: 600 13px Roboto, Arial, sans-serif; color: #111; }
+  #ref .rt small { display: block; font-weight: 400; color: #999; margin-top: 2px; font-size: 11px; }
+  body.feedonly #ref .grid { margin-top: 0; grid-template-columns: repeat(3, 1fr); align-content: start; grid-auto-rows: max-content; overflow: hidden; }
+  #ref .rc { position: relative; aspect-ratio: 3 / 4; background: #e9e9e9; overflow: hidden; }
+  #ref .rb { position: absolute; top: 5px; right: 5px; color: #fff; line-height: 0; filter: drop-shadow(0 0 2px rgba(0,0,0,.6)); }
+  #ref .rb .i { width: 16px; height: 16px; fill: #fff; }
+  #ref .rc img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  body.feedonly #ref .grid.scrollable { overflow-y: auto; scrollbar-width: none; }
+  #ref .grid.scrollable::-webkit-scrollbar { display: none; }
+
+  /* ---- Settings panel ---- */
+  .panel { background: var(--panel); color: #fff; border-radius: 28px; padding: 24px; width: 420px; max-width: 100%; font-family: Georgia, serif; }
+  .panel h1 { text-align: center; margin: 0 0 12px; font: bold 28px "Helvetica Neue", Arial, sans-serif; }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 6px; }
+  .pill { background: var(--pill); border-radius: 999px; padding: 4px 12px; display: flex; align-items: center; justify-content: space-between; min-height: 36px; }
+  .pill .icons { display: flex; gap: 10px; align-items: center; font-size: 20px; }
+  .pill .icons button { background: none; border: 0; padding: 0; color: #fff; cursor: pointer; font-size: 20px; line-height: 1; }
+  .pill .icons button.on { color: var(--brand); }
+  .switch { appearance: none; width: 38px; height: 22px; border-radius: 999px; background: #fff; position: relative; cursor: pointer; outline: none; flex: none; }
+  .switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #888; transition: .15s; }
+  .switch:checked { background: var(--brand); }
+  .switch:checked::after { left: 19px; background: #fff; }
+  .note { font-size: 12px; color: #c0c0c0; margin: 10px 0 0; text-align: center; }
+  select, .btn { width: 100%; margin-top: 12px; border-radius: 999px; font: inherit; font-size: 18px; padding: 10px 16px; }
+  select { background: #fff; border: 2px solid #e3e3e3; }
+  .btn { background: var(--brand-dark); color: #fff; border: 2px solid var(--brand-dark); font-weight: bold; cursor: pointer; margin-top: 8px; }
+  .btn:hover { background: #013742; }
+  .btn.secondary { background: transparent; border-color: #666; font-weight: normal; font-size: 15px; padding: 6px 16px; }
+  #file { display: none; }
+
+  /* ===== Direction B: dark, muted, one dark-blue accent (tokens in :root of this block) ===== */
+  :root { --bgB:#0f0f10; --surf:#1a1a1c; --surf2:#232326; --line:#2a2a2d; --txt:#ededed; --mut:#a0a0a8; --accent:#2f5be0; --accent-hover:#2549b8; --danger:#ff6b5e; --uiFont: Roboto,"Helvetica Neue",Arial,sans-serif; }
+  body.feedonly { background: var(--bgB); color: var(--txt); }
+  body.feedonly #phone, body.feedonly .screen { background: var(--bgB); color: var(--txt); }
+  body.feedonly .tabs .active::after { background: var(--txt); }
+  body.feedonly .cell { background-color: var(--surf); }
+  .ph svg { fill: #55555c; }
+  body.feedonly.cmp #ref { background: var(--bgB); border-color: #3a3a3e; box-shadow: 0 0 0 1px var(--line); }
+  #ref .rt { color: var(--txt); }
+  #ref .rt small { color: var(--mut); }
+  #ref .rc { background: var(--surf); }
+  #gear { background: var(--surf); border: 1px solid var(--line); border-radius: 8px; font: 14px var(--uiFont); color: var(--txt); opacity: 1; }
+  .panel { background: var(--surf); border: 1px solid var(--line); border-radius: 12px; padding: 20px; font-family: var(--uiFont); color: var(--txt); }
+  .panel h1 { text-align: left; font-size: 18px; margin: 0 0 8px; }
+  .row2 { grid-template-columns: 1fr; gap: 0; margin-top: 0; }
+  .pill { background: transparent; border-radius: 8px; padding: 4px 4px; min-height: 40px; color: var(--txt); font-size: 14px; }
+  .pill label { color: var(--txt); }
+  .pill + .pill, .row2 .pill { border-bottom: 1px solid var(--line); border-radius: 0; }
+  .pill input[type=range], .pill input[type=number] { accent-color: var(--accent); }
+  .pill span { color: var(--mut); }
+  .switch { background: var(--line); }
+  .switch::after { background: #cfcfd4; }
+  .switch:checked { background: var(--accent); }
+  .switch:checked::after { background: #fff; }
+  .note { color: var(--mut); text-align: left; font-size: 12px; margin: 8px 0 0; }
+  select { background: var(--bgB); color: var(--txt); border: 1px solid var(--line); border-radius: 8px; font-size: 14px; padding: 8px 12px; }
+  .btn { background: var(--accent); border: 1px solid var(--accent); color: #fff; border-radius: 8px; font-size: 14px; font-weight: 600; padding: 10px 16px; min-height: 40px; margin-top: 8px; }
+  .btn:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+  .btn.secondary { background: var(--surf2); border: 1px solid var(--line); color: var(--txt); font-weight: 500; font-size: 14px; padding: 10px 16px; }
+  .btn.secondary:hover { background: #2c2c30; }
+  #clear { background: transparent; border-color: var(--danger); color: var(--danger); }
+  #clear:hover { background: rgba(255,107,94,.12); }
+  a.btn.secondary { color: var(--txt); }
+  #importBox .pill { background: var(--bgB); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+  #importBox input[type=file] { color: var(--mut) !important; font-size: 12px; }
+  #backBtn { display: none; position: fixed; top: 10px; left: 12px; z-index: 20; background: var(--surf); border: 1px solid var(--line); border-radius: 8px; padding: 9px 14px; font: 14px var(--uiFont); color: var(--txt); text-decoration: none; min-height: 40px; align-items: center; }
+  #backBtn:hover { background: var(--surf2); }
+  body.feedonly #backBtn.srv { display: inline-flex; }
+  /* ===== Layout: settings always open on the left, feed in the middle, phone preview on the right ===== */
+  body.feedonly #gear { display: none; }
+  body.feedonly .panel { display: block; position: static; box-shadow: none; max-height: calc(100vh - 72px); overflow-y: auto; margin: 60px 0 12px; justify-self: center; align-self: start; width: min(380px, calc(100% - 24px)); scrollbar-width: thin; scrollbar-color: #3a3a3e transparent; }
+  body.feedonly.cmp .panel { grid-column: 1; grid-row: 1; }
+  body.feedonly.cmp #phone { grid-column: 2; grid-row: 1; }
+  body.feedonly.cmp #ref { grid-column: 3; grid-row: 1; }
+  body.feedonly:not(.cmp) .panel { position: fixed; left: 12px; top: 60px; margin: 0; justify-self: start; align-self: start; }
+  /* ===== Sidebar identical to the left column of the stories page ===== */
+  body.feedonly .panel { position: fixed; left: 0; top: 0; bottom: 0; width: 300px; max-width: none; max-height: none; margin: 0; padding: 18px; border: 0; border-right: 1px solid var(--line); border-radius: 0; background: var(--surf); box-shadow: none; overflow-y: auto; justify-self: auto; align-self: auto; z-index: 15; scrollbar-width: thin; scrollbar-color: #3a3a3e transparent; }
+  body.feedonly:not(.cmp) .panel { left: 0; top: 0; margin: 0; }
+  body.feedonly #backBtn.srv { display: none !important; }
+  .panel h1 { font-size: 20px; margin: 0 0 4px; text-align: left; }
+  .panel .sub { color: var(--mut); font-size: 12px; }
+  .panel h2 { font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--mut); margin: 22px 0 8px; font-weight: 600; }
+  .panel .stack { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
+  .panel .stack .btn { margin-top: 0; }
+  .panel a.btn { display: block; text-align: center; text-decoration: none; }
+  .panel a.btn.cur { border-color: var(--accent); color: var(--accent-text); pointer-events: none; }
+  .panel .drop { border: 1px dashed #3a3a3e; border-radius: 8px; padding: 16px 10px; text-align: center; color: var(--mut); margin-top: 12px; font-size: 13px; }
+  .panel .drop.over { border-color: var(--accent); color: var(--accent-text); }
+  .panel .kv { display: grid; grid-template-columns: 1fr auto; gap: 6px 10px; font-size: 13px; border-top: 1px solid var(--line); padding-top: 8px; }
+  .panel .kv span:nth-child(odd) { color: var(--mut); }
+  .panel .kv span:nth-child(even) { color: var(--txt); }
+  /* ===== Cell controls: remove from the feed, publish / scheduled mark ===== */
+  .cell .x { position: absolute; top: 5px; right: 5px; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 50%; background: rgba(0,0,0,.7); color: #fff; font: 12px/20px Arial, sans-serif; cursor: pointer; opacity: 0; z-index: 3; }
+  .cell:hover .x { opacity: 1; }
+  .cell:hover .x ~ .badge, .cell:hover .badge { opacity: 0; }
+  .cell .x:hover { background: var(--danger); }
+  .cell .pub, .cell .ok { position: absolute; left: 5px; bottom: 5px; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 50%; color: #fff; z-index: 3; display: flex; align-items: center; justify-content: center; }
+  .cell .pub { background: var(--accent); cursor: pointer; opacity: 0; }
+  .cell:hover .pub { opacity: 1; }
+  .cell .pub:hover:not(:disabled) { background: var(--accent-hover); }
+  .cell .pub:disabled { background: #555; cursor: default; }
+  .cell .ok { background: #2fb344; opacity: 0; }
+  .cell:hover .ok { opacity: 1; }
+  .cell .pub svg, .cell .ok svg { width: 14px; height: 14px; fill: #fff; }
+  #settingsBox[hidden], #archiveBox[hidden] { display: none; }
+  .cell .arc { position: absolute; right: 5px; bottom: 5px; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 50%; background: rgba(0,0,0,.7); color: #fff; z-index: 3; display: flex; align-items: center; justify-content: center; cursor: pointer; opacity: 0; }
+  .cell:hover .arc { opacity: 1; }
+  .cell .arc:hover { background: var(--accent); }
+  .cell .arc svg, .ai .back svg { width: 14px; height: 14px; fill: #fff; }
+  .archgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-top: 8px; max-height: 55vh; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #3a3a3e transparent; }
+  .archgrid .empty { grid-column: 1 / -1; color: var(--mut); font-size: 13px; padding: 8px 0; }
+  .ai { position: relative; aspect-ratio: 3 / 4; background-color: var(--surf2); background-size: cover; background-position: center; border-radius: 6px; cursor: grab; overflow: hidden; }
+  .ai .back { position: absolute; left: 50%; bottom: 5px; margin-left: -12px; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 50%; background: var(--accent); display: flex; align-items: center; justify-content: center; cursor: pointer; opacity: 0; }
+  .ai:hover .back { opacity: 1; }
+  .ai .ok { position: absolute; left: 4px; top: 4px; width: 18px; height: 18px; border-radius: 50%; background: #2fb344; display: flex; align-items: center; justify-content: center; }
+  .ai .ok svg { width: 12px; height: 12px; fill: #fff; }
+  .ai .multi { position: absolute; right: 4px; top: 4px; color: #fff; line-height: 0; filter: drop-shadow(0 0 2px rgba(0,0,0,.7)); }
+</style>
+</head>
+<body>
+<button id="gear">Settings</button>
+<a id="backBtn" href="/stories/">&larr; Історії</a>
+<div class="app">
+  <div id="ref"><div class="rt" id="refTitle">Вигляд на телефоні<small>оновлюється разом із центральною стрічкою</small></div><div class="grid" id="refGrid"></div></div>
+  <div id="phone" class="frame">
+    <div class="tray-top" id="trayTop"><span><span id="clock"></span> <svg class="i" viewBox="0 0 24 24"><path d="M12 18.5l2.2-2.6a3.2 3.2 0 0 0-4.4 0L12 18.5zM12 6c-3.6 0-6.9 1.4-9.4 3.7l1.5 1.7A12.5 12.5 0 0 1 12 8.5c3 0 5.8 1.1 7.9 2.9l1.5-1.7A14.9 14.9 0 0 0 12 6zm0 5.5c-2.2 0-4.3.8-5.9 2.2l1.5 1.7a8 8 0 0 1 8.8 0l1.5-1.7a9.3 9.3 0 0 0-5.9-2.2z"/></svg></span><span>4G <svg class="i" viewBox="0 0 24 24"><path d="M16 4h-1V2H9v2H8a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zm0 6H8V6h8v4z"/></svg></span></div>
+    <div class="screen">
+      <div class="hdr">
+        <svg class="i" viewBox="0 0 24 24" style="font-size:22px"><path d="M20 11H7.8l5.6-5.6L12 4l-8 8 8 8 1.4-1.4L7.8 13H20z"/></svg>
+        <span class="name" contenteditable="true" spellcheck="false">eve.rlastinghome</span>
+        <svg id="checkmark" class="i" viewBox="0 0 24 24" style="font-size:18px;color:var(--blue)"><path d="M23 12l-2.4-2.8.3-3.7-3.6-.8-1.9-3.2L12 3 8.6 1.5 6.7 4.7l-3.6.8.3 3.7L1 12l2.4 2.8-.3 3.7 3.6.8 1.9 3.2L12 21l3.4 1.5 1.9-3.2 3.6-.8-.3-3.7L23 12zm-12.2 4.2L6.6 12l1.4-1.4 2.8 2.8 5.2-5.2 1.4 1.4-6.6 6.6z"/></svg>
+        <span class="spacer"></span>
+        <svg class="i" viewBox="0 0 24 24" style="font-size:20px"><path d="M12 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm0 6a2 2 0 1 0 0 4 2 2 0 0 0 0-4z"/></svg>
+      </div>
+      <div class="tabs">
+        <div class="active"><svg class="i" viewBox="0 0 24 24" style="font-size:22px"><path d="M3 3h8v8H3zm10 0h8v8h-8zM3 13h8v8H3zm10 0h8v8h-8z"/></svg></div>
+        <div><svg class="i" viewBox="0 0 24 24" style="font-size:22px"><path d="M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zm6 4v8l6-4z" fill-rule="evenodd"/></svg></div>
+        <div><svg class="i" viewBox="0 0 24 24" style="font-size:22px"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm0 2c-3.3 0-8 1.7-8 5v1h16v-1c0-3.3-4.7-5-8-5z"/></svg></div>
+      </div>
+      <div class="grid" id="grid"></div>
+    </div>
+    <div class="tray-bottom" id="trayBottom">
+      <svg class="i" viewBox="0 0 24 24" style="font-size:22px"><path d="M12 3L2 12h3v8h5v-6h4v6h5v-8h3z"/></svg>
+      <svg class="i" viewBox="0 0 24 24" style="font-size:22px"><path d="M15.5 14h-.8l-.3-.3A6.5 6.5 0 1 0 14 15.5l.3.3v.8l5 5 1.5-1.5-5-5zm-6 0a4.5 4.5 0 1 1 0-9 4.5 4.5 0 0 1 0 9z"/></svg>
+      <svg class="i" viewBox="0 0 24 24" style="font-size:22px"><path d="M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm-2 10h-4v4h-2v-4H7v-2h4V7h2v4h4z"/></svg>
+      <svg class="i" viewBox="0 0 24 24" style="font-size:22px"><path d="M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zm6 4v8l6-4z" fill-rule="evenodd"/></svg>
+      <svg class="i" viewBox="0 0 24 24" style="font-size:22px"><circle cx="12" cy="12" r="10"/></svg>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h1>Стрічка</h1>
+    <div class="sub" id="panelSub">Пости з папок підтягуються автоматично</div>
+    <div class="stack">
+      <a class="btn secondary" href="/calendar/">Календар</a>
+      <a class="btn secondary cur" href="/planner/" aria-current="page">Стрічка</a>
+      <a class="btn secondary" href="/stories/">Історії</a>
+    </div>
+    <div class="stack">
+      <button class="btn" id="refresh" type="button">Оновити</button>
+      <button class="btn secondary" id="toggleSettings" type="button" aria-expanded="false" aria-controls="settingsBox">Налаштування стрічки &#9662;</button>
+      <button class="btn secondary" id="toggleArchive" type="button" aria-expanded="false" aria-controls="archiveBox">Архів (0) &#9662;</button>
+    </div>
+    <div id="archiveBox" hidden>
+      <div class="sub" style="margin:8px 0 0">Тут пости й фото, які лишаються в папках, але не показуються в стрічці. Натисніть стрілку на фото або перетягніть його в стрічку.</div>
+      <div class="archgrid" id="archGrid"></div>
+    </div>
+    <div class="sub" id="saveStatus" style="margin-top:8px;min-height:18px">Зберігає фото, їх порядок і вигляд.</div>
+    <div id="settingsBox" hidden>
+    <div class="stack">
+      <button class="btn" id="saveFeed">Зберегти стрічку</button>
+      <button class="btn secondary" id="restoreFeed">Відновити збережену</button>
+    </div>
+    <div class="drop" id="dropFeed">Перетягніть фото сюди або <label style="color:var(--accent-text);cursor:pointer"><u>виберіть файли</u><input id="dropFiles" type="file" accept="image/*" multiple hidden></label><br><span class="sub">jpg, png; додаються на початок стрічки</span></div>
+    <h2>Стан</h2>
+    <div class="kv" id="stats"></div>
+    <div class="stack" style="margin-top:8px"><button class="btn secondary" id="showHidden" type="button" hidden>Показати приховані пости</button></div>
+    <h2>Файли</h2>
+    <div class="stack" style="margin-top:0">
+      <button class="btn secondary" id="exportSetup" type="button">Експорт у файл</button>
+      <button class="btn secondary" id="importSetupBtn" type="button">Імпорт із файлу</button>
+      <button class="btn secondary" id="undoImport" type="button">Скасувати останню зміну</button>
+      <button class="btn secondary" id="clear">Очистити все</button>
+    </div>
+    <input id="importSetup" type="file" accept="application/json,.json" hidden>
+    <h2>Додатково</h2>
+    <div class="stack" style="margin-top:0">
+      <button class="btn secondary" id="importBtn">Імпорт із файлів (без API)</button>
+      <button class="btn secondary" id="connect">Підключити стрічку (API)</button>
+    </div>
+    <div id="fixedSettings" hidden><!-- view settings are fixed in the script: scale 60%, 3 columns, phone preview on -->
+    <div class="row2">
+      <div class="pill"><label for="optPhone">Smartphone</label><input id="optPhone" class="switch" type="checkbox" checked></div>
+      <div class="pill"><label for="optCheck">Checkmark</label><input id="optCheck" class="switch" type="checkbox" checked></div>
+    </div>
+    <div class="pill" style="margin-top:6px"><label for="rows">Visible rows</label><input id="rows" type="range" min="4" max="20" value="4" style="width:55%"><span id="rowsVal" style="width:22px;text-align:right">4</span></div>
+    <div class="row2">
+      <div class="pill"><label for="optFeed">Feed only</label><input id="optFeed" class="switch" type="checkbox" checked></div>
+      <div class="pill"><label for="optCmp">Compare</label><input id="optCmp" class="switch" type="checkbox" checked></div>      <div class="pill"><label for="cols">Columns</label><input id="cols" type="range" min="3" max="12" value="3" style="width:50%"><span id="colsVal" style="width:18px;text-align:right">3</span></div>
+      <div class="pill"><label for="scale">Scale</label><input id="scale" type="range" min="60" max="220" step="1" value="67" style="width:45%"><span id="scaleVal" style="width:40px;text-align:right">67%</span></div>
+    </div>
+    </div>
+    <div id="importBox" hidden style="margin-top:12px">
+      <div class="pill" style="border-radius:16px;padding:10px 12px;flex-direction:column;align-items:stretch;gap:8px;font-size:14px">
+        <label>1) Images / videos (many at once)
+          <input id="impFiles" type="file" accept="image/*,video/*" multiple style="display:block;margin-top:4px;color:#fff"></label>
+        <label>2) Instagram data export folder
+          <input id="impFolder" type="file" webkitdirectory multiple style="display:block;margin-top:4px;color:#fff"></label>
+        <label>Order for option 1
+          <select id="impSort" style="margin:4px 0 0;padding:4px 10px;font-size:14px"><option value="dateDesc">newest first (file date)</option><option value="dateAsc">oldest first (file date)</option><option value="name">by file name</option></select></label>
+        <label>What to do with the imported photos
+          <select id="impMode" style="margin:4px 0 0;padding:4px 10px;font-size:14px"><option value="start">add at the start of the feed (newest)</option><option value="end">add at the end of the feed</option><option value="replace">replace the whole feed</option></select></label>
+        <label>3) Upload photos to the server folder (data/feed)
+          <input id="srvUpload" type="file" accept="image/jpeg,image/png" multiple style="display:block;margin-top:4px;color:#fff"></label>
+        <button class="btn secondary" id="srvLoad" type="button" style="font-size:14px;padding:6px 12px">Load photos from the server folder</button>
+        <button class="btn secondary" id="restoreCrops" type="button" style="font-size:14px;padding:6px 12px">Restore feed from the phone preview (feed_crops)</button>
+      </div>
+      <p class="note" id="impStatus">Option 2: in Instagram open Accounts Center, Your information and permissions, Export your information, choose Media and format JSON, unzip, select the folder.</p>
+    </div>
+    <div id="connectBox" hidden style="margin-top:12px">
+      <div class="pill" style="border-radius:16px;padding:8px 12px;flex-direction:column;align-items:stretch;gap:6px">
+        <input id="feedUrl" placeholder="Profile link: instagram.com/username" style="border-radius:999px;border:0;padding:6px 12px;font:inherit;font-size:14px">
+        <input id="feedToken" type="password" placeholder="Instagram Graph API access token" style="border-radius:999px;border:0;padding:6px 12px;font:inherit;font-size:14px">
+        <label style="font-size:12px"><input type="checkbox" id="feedRemember"> remember token for this tab session</label>
+      </div>
+      <button class="btn" id="feedLoad" style="font-size:15px;padding:6px 16px">Load feed</button>
+      <p class="note" id="feedStatus">Works for Business/Creator accounts you own or manage. The token is sent only to graph.instagram.com.</p>
+    </div>
+    </div><!-- /settingsBox -->
+  </div>
+</div>
+<input type="file" id="file" accept="image/*">
+
+<script src="https://cdn.jsdelivr.net/npm/html-to-image@1.11.11/dist/html-to-image.js"></script>
+<script src="feed_crops/feed.js"></script>
+<script>
+/* ===== State model: single source of truth, UI is rendered from it ===== */
+const CELLS = 12;
+const state = {
+  smartphone: true,
+  checkmark: true,
+  archive: [],     // cells moved to the archive: they stay in their folders but are not shown in the feed
+  dismissed: [],   // post folders removed from the feed by the user (the post stays in its folder)
+  cells: Array.from({ length: CELLS }, () => ({ img: null, type: null })) // type: null|'pin'|'multi'|'reel'
+};
+
+const ICONS = {
+  pin:   '<svg class="i" viewBox="0 0 24 24" style="transform:rotate(45deg)"><path d="M16 9V4h1V2H7v2h1v5l-2 3v2h5v7l1 1 1-1v-7h5v-2z"/></svg>',
+  multi: '<svg class="i" viewBox="0 0 24 24"><path d="M8 3h13v13h-2V5H8zM3 8h13v13H3z"/></svg>',
+  reel:  '<svg class="i" viewBox="0 0 24 24"><path d="M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zm6 4v8l6-4z" fill-rule="evenodd"/></svg>'
+};
+const PH = '<svg viewBox="0 0 24 24"><path d="M21 19V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2zM8.5 13.5l2.5 3 3.5-4.5 4.5 6H5z"/></svg>';
+
+const $ = s => document.querySelector(s);
+const gridEl = $('#grid'), fileEl = $('#file');
+let pickIndex = null, dragFrom = null;
+
+/* ===== Rendering ===== */
+function render() {
+  $('#phone').className = state.smartphone ? 'frame' : 'noframe';
+  $('#trayTop').classList.toggle('hidden', !state.smartphone);
+  $('#trayBottom').classList.toggle('hidden', !state.smartphone);
+  $('#checkmark').style.visibility = state.checkmark ? 'visible' : 'hidden';
+
+  gridEl.innerHTML = '';
+  state.cells.forEach((c, i) => {
+    const d = document.createElement('div');
+    d.className = 'cell' + (c.img ? ' has-img' : '');
+    d.draggable = true;
+    d.dataset.i = i;
+    if (c.img) d.style.backgroundImage = `url(${c.img})`;
+    d.innerHTML = `<span class="ph">${PH}</span>` + (c.type ? `<span class="badge" style="color:#fff">${ICONS[c.type]}</span>` : '');
+    const live = c.img && c.post && !isPublished(c);   // published posts and older photos have no buttons: they cannot be removed
+    if (live) { // remove from the feed only: a post stays in its folder and is not scheduled or deleted
+      const x = document.createElement('button'); x.className = 'x'; x.type = 'button'; x.title = 'Прибрати зі стрічки'; x.textContent = '\u2715';
+      x.addEventListener('click', ev => { ev.stopPropagation(); removeCell(i); });
+      d.appendChild(x);
+    }
+    if (live) {
+      const a = document.createElement('button'); a.className = 'arc'; a.type = 'button'; a.title = 'В архів (пост лишається в папці)';
+      a.innerHTML = '<svg viewBox="0 0 24 24"><path d="M20.5 3l1.5 1.8V20a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V4.8L3.5 3zM12 17.5l4-4h-2.5V10h-3v3.5H8zM5.1 5l-.1.1V6h14v-.9L18.9 5z"/></svg>';
+      a.addEventListener('click', ev => { ev.stopPropagation(); archiveCell(i); });
+      d.appendChild(a);
+    }
+    if (live) {
+      if (c.sched) {
+        const ok = document.createElement('span'); ok.className = 'ok'; ok.title = 'Заплановано на ' + fmtKyiv(c.sched) + ' (папка ' + c.post + ')';
+        ok.innerHTML = '<svg viewBox="0 0 24 24"><path d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z"/></svg>'; d.appendChild(ok);
+      } else {
+        const p = document.createElement('button'); p.className = 'pub'; p.type = 'button';
+        const bad = (c.errors || []).length > 0;
+        p.title = bad ? 'Неможливо запланувати: ' + c.errors.join('; ') : 'Запланувати публікацію (папка ' + c.post + ')';
+        p.disabled = bad;
+        p.innerHTML = '<svg viewBox="0 0 24 24"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>';
+        p.addEventListener('click', ev => { ev.stopPropagation(); publishCell(i); });
+        d.appendChild(p);
+      }
+    }
+    d.addEventListener('click', () => { if (c.post) return; pickIndex = i; fileEl.value = ''; fileEl.click(); });
+    d.addEventListener('dragstart', e => { dragFrom = i; d.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', i); });
+    d.addEventListener('dragend', () => { dragFrom = null; document.querySelectorAll('.cell').forEach(x => x.classList.remove('dragging', 'over')); });
+    d.addEventListener('dragover', e => { e.preventDefault(); d.classList.add('over'); });
+    d.addEventListener('dragleave', () => d.classList.remove('over'));
+    d.addEventListener('drop', e => {
+      e.preventDefault();
+      if (e.dataTransfer.files.length) { loadFile(e.dataTransfer.files[0], i); return; } // drop a file straight onto a cell
+      const ai = e.dataTransfer.getData('text/x-archive');
+      if (ai !== '') { restoreFromArchive(+ai, i); return; }   // dragged out of the archive: insert before this cell
+      if (dragFrom !== null && dragFrom !== i) swap(dragFrom, i);
+    });
+    gridEl.appendChild(d);
+  });
+
+  renderRef();
+  renderArchive();
+  updateStats();
+  if (typeof save === 'function' && restored) save();
+}
+let restored = false;
+function updateStats() {
+  const n = state.cells.filter(c => c.img).length;
+  const sch = state.cells.filter(c => c.post && c.sched).length, pend = state.cells.filter(c => c.post && !c.sched).length;
+  const hb = $('#showHidden'); if (hb) { hb.hidden = !state.dismissed.length; hb.textContent = 'Показати приховані пости (' + state.dismissed.length + ')'; }
+  $('#stats').innerHTML = '<span>Фото у стрічці</span><span>' + n + '</span><span>Рядків</span><span>' + Math.ceil(state.cells.length / 3) + '</span><span>Масштаб</span><span>60%</span><span>Пости чекають</span><span>' + pend + '</span><span>Пости заплановано</span><span>' + sch + '</span><span>В архіві</span><span>' + state.archive.length + '</span>';
+}
+
+/* ===== Posts from the numbered folders (data/posts/01..25): loaded into the feed, published from here ===== */
+const fmtKyiv = t => new Date(t).toLocaleString('uk-UA', { timeZone: 'Europe/Kyiv', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+const isImgName = n => /\.(jpe?g|png)$/i.test(n);
+function normalizeCells() { // drop trailing empty placeholders, then pad to whole rows of 3
+  while (state.cells.length && !state.cells[state.cells.length - 1].img) state.cells.pop();
+  while (state.cells.length < 3 || state.cells.length % 3) state.cells.push({ img: null, type: null });
+}
+async function postThumb(folder, name) { // small server preview (w=540), then the same shrink as every other cell
+  const r = await fetch('/pimg/slot/' + encodeURIComponent(folder) + '/' + encodeURIComponent(name) + '?w=540');
+  if (!r.ok) return null;
+  const b = await r.blob();
+  return await shrink(new File([b], name, { type: b.type || 'image/jpeg' })).catch(() => null);
+}
+let lastMeta = '';
+async function pushMeta() { // tell the server which post folders are kept out of the feed, so the Calendar does not plan them
+  if (!/^https?:$/.test(location.protocol)) return;
+  const hidden = [...new Set([...state.dismissed, ...state.archive.filter(c => c.post).map(c => c.post)])].sort();
+  const body = JSON.stringify({ hidden });
+  if (body === lastMeta) return;
+  try { const r = await fetch('/api/feed-meta', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body }); if (r.ok) lastMeta = body; } catch (e) {}
+}
+async function syncPosts() { // returns {added, changed, removed} or null when the server is not reachable
+  await pushMeta();
+  let ps;
+  try { const r = await fetch('/api/posts/state'); if (!r.ok) return null; ps = await r.json(); if (ps.error) return null; } catch (e) { return null; }
+  const live = new Map();
+  ps.waiting.forEach(w => live.set(w.folder, { images: w.images.filter(isImgName), caption: w.caption, errors: w.errors, warnings: w.warnings, expected: w.expected, sig: w.sig || '', sched: null }));
+  ps.scheduled.forEach(x => live.set(x.folder, { images: (x.images || []).filter(isImgName), caption: x.caption, errors: [], warnings: [], expected: null, sig: '', sched: x.due }));
+  const res = { added: 0, changed: 0, removed: 0 };
+  state.dismissed = state.dismissed.filter(f => live.has(f));      // a folder that was emptied can be used again
+  const reconcile = async list => {
+    for (let i = list.length - 1; i >= 0; i--) {
+      const c = list[i]; if (!c.post) continue;
+      const L = live.get(c.post);
+      if (!L || !L.images.length) {
+        if (c.sched) { delete c.post; delete c.sched; delete c.sig; delete c.expected; delete c.errors; delete c.warnings; delete c.caption; delete c.first; delete c.n; res.changed++; } // published: stays in the feed as a normal photo
+        else { list.splice(i, 1); res.removed++; }
+        continue;
+      }
+      const need = (L.sig && L.sig !== c.sig && !L.sched) || c.first !== L.images[0];
+      if (need) { const img = await postThumb(c.post, L.images[0]); if (img) c.img = img; res.changed++; }
+      Object.assign(c, { type: L.images.length > 1 ? 'multi' : null, sig: L.sig || c.sig, first: L.images[0], n: L.images.length, sched: L.sched, expected: L.expected, errors: L.errors, warnings: L.warnings, caption: L.caption });
+    }
+  };
+  await reconcile(state.cells);
+  await reconcile(state.archive);
+  const have = new Set([...state.cells, ...state.archive].filter(c => c.post).map(c => c.post));
+  for (const folder of [...live.keys()].sort()) {
+    const L = live.get(folder);
+    if (have.has(folder) || state.dismissed.includes(folder) || !L.images.length) continue;
+    const img = await postThumb(folder, L.images[0]); if (!img) continue;
+    const cell = { img, type: L.images.length > 1 ? 'multi' : null, post: folder, sig: L.sig, first: L.images[0], n: L.images.length, sched: L.sched, expected: L.expected, errors: L.errors, warnings: L.warnings, caption: L.caption };
+    let at = 0; // keep the leading block of posts in folder order
+    while (at < state.cells.length && state.cells[at].post && state.cells[at].post < folder) at++;
+    state.cells.splice(at, 0, cell); res.added++;
+  }
+  normalizeCells(); render();
+  return res;
+}
+async function refreshPosts() {
+  const st = $('#saveStatus'); st.textContent = 'Сканування папок…';
+  const r = await syncPosts();
+  if (!r) { st.textContent = 'Папки недоступні: сторінку потрібно відкривати із сервера (http://aperion:8095/planner/).'; return; }
+  st.textContent = 'Папки оновлено: нових ' + r.added + ', змінено ' + r.changed + ', прибрано ' + r.removed + '.';
+}
+async function publishCell(i) {
+  const c = state.cells[i], st = $('#saveStatus'); if (!c || !c.post || c.sched) return;
+  const warn = (c.warnings || []).length ? '\n\nУвага:\n- ' + c.warnings.join('\n- ') : '';
+  if (!confirm('Запланувати пост із папки ' + c.post + ' (' + (c.n || 1) + ' фото)' + (c.expected ? ' на ' + fmtKyiv(c.expected) : '') + '?' + warn)) return;
+  st.textContent = 'Завантаження фото й постановка в чергу…';
+  try {
+    const r = await fetch('/api/posts/schedule', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ folder: c.post }) });
+    const j = await r.json();
+    if (j.ok) { c.sched = j.due; render(); st.textContent = 'Заплановано на ' + fmtKyiv(j.due) + '.'; } else st.textContent = 'Помилка: ' + (j.error || 'невідома');
+  } catch (e) { st.textContent = 'Помилка зв’язку із сервером.'; }
+}
+const isPublished = c => !!(c && c.sched && Date.parse(c.sched) <= Date.now());   // the publication time has passed
+function archiveCell(i) { // the post stays in its folder (and stays scheduled if it was); it just leaves the feed
+  snapshot();
+  const c = state.cells.splice(i, 1)[0]; if (!c || !c.img) return;
+  state.archive.push(c);
+  normalizeCells(); render();
+  $('#saveStatus').textContent = (c.post ? 'Пост із папки ' + c.post : 'Фото') + ' переміщено в архів.';
+}
+function restoreFromArchive(ai, at) { // click on the arrow: back to the start (posts in folder order); drag: insert at the dropped cell
+  const c = state.archive[ai]; if (!c) return;
+  snapshot(); state.archive.splice(ai, 1);
+  if (at === undefined) { at = 0; if (c.post) while (at < state.cells.length && state.cells[at].post && state.cells[at].post < c.post) at++; }
+  state.cells.splice(at, 0, c);
+  normalizeCells(); render();
+  $('#saveStatus').textContent = (c.post ? 'Пост із папки ' + c.post : 'Фото') + ' повернуто з архіву в стрічку.';
+}
+function renderArchive() {
+  const n = state.archive.length, open = !$('#archiveBox').hidden;
+  $('#toggleArchive').innerHTML = 'Архів (' + n + ') ' + (open ? '&#9652;' : '&#9662;');
+  if (!open) return;
+  const g = $('#archGrid'); g.innerHTML = '';
+  if (!n) { const e = document.createElement('div'); e.className = 'empty'; e.textContent = 'Архів порожній.'; g.appendChild(e); return; }
+  state.archive.forEach((c, k) => {
+    const d = document.createElement('div'); d.className = 'ai'; d.draggable = true;
+    d.style.backgroundImage = `url(${c.img})`;
+    d.title = c.post ? 'Папка ' + c.post + (c.n > 1 ? ' · ' + c.n + ' фото' : '') : 'Фото';
+    d.addEventListener('dragstart', e => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/x-archive', String(k)); });
+    if (c.type === 'multi') d.insertAdjacentHTML('beforeend', '<span class="multi">' + ICONS.multi + '</span>');
+    if (c.post && c.sched) d.insertAdjacentHTML('beforeend', '<span class="ok" title="Заплановано"><svg viewBox="0 0 24 24"><path d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z"/></svg></span>');
+    const b = document.createElement('button'); b.className = 'back'; b.type = 'button'; b.title = 'Повернути в стрічку';
+    b.innerHTML = '<svg viewBox="0 0 24 24"><path d="M12 4l-8 8h5v8h6v-8h5z"/></svg>';
+    b.addEventListener('click', ev => { ev.stopPropagation(); restoreFromArchive(k); });
+    d.appendChild(b); g.appendChild(d);
+  });
+}
+function removeCell(i) { // from the feed only: the post stays in its folder (and stays scheduled if it was)
+  snapshot();
+  const c = state.cells.splice(i, 1)[0];
+  if (c && c.post && !state.dismissed.includes(c.post)) state.dismissed.push(c.post);
+  normalizeCells(); render();
+  $('#saveStatus').textContent = c && c.post ? 'Пост із папки ' + c.post + ' прибрано зі стрічки (у папці він лишився).' : 'Фото прибрано зі стрічки.';
+}
+
+/* ===== Actions (extend here) ===== */
+function swap(a, b) { [state.cells[a], state.cells[b]] = [state.cells[b], state.cells[a]]; render(); } // image and icon move together
+function setType(i, t) { state.cells[i].type = state.cells[i].type === t ? null : t; render(); }
+function loadFile(file, i) {
+  if (!file || !file.type.startsWith('image/')) return;
+  const r = new FileReader();
+  r.onload = e => { state.cells[i].img = e.target.result; render(); };
+  r.readAsDataURL(file);
+}
+async function download() {
+  const fmt = $('#fmt').value;
+  const node = $('#phone');
+  const opts = { pixelRatio: state.cells.length > 60 ? 2 : 5, cacheBust: true, backgroundColor: '#ffffff' };
+  const full = $('#scope').value === 'full';
+  if (full) node.classList.add('full');
+  const url = fmt === 'png' ? await htmlToImage.toPng(node, opts) : await htmlToImage.toJpeg(node, { ...opts, quality: 0.95 });
+  if (full) node.classList.remove('full');
+  const a = document.createElement('a');
+  a.href = url; a.download = `instagram_grid_mockup.${fmt === 'jpeg' ? 'jpg' : 'png'}`; a.click();
+}
+
+/* ===== Connect existing feed (Instagram Graph API) ===== */
+function parseUsername(link) {
+  const m = (link || '').trim().match(/(?:instagram\.com\/)?@?([A-Za-z0-9._]{1,30})\/?(?:\?.*)?$/);
+  return m ? m[1] : null;
+}
+async function toDataUrl(url) { // inline the image so export works; fall back to the URL if the CDN blocks CORS
+  try {
+    const b = await (await fetch(url)).blob();
+    return await new Promise(res => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(b); });
+  } catch { return url; }
+}
+async function loadFeed() {
+  const status = $('#feedStatus'), token = $('#feedToken').value.trim(), wanted = parseUsername($('#feedUrl').value);
+  if (!token) { status.textContent = 'Paste an access token first.'; return; }
+  status.textContent = 'Loading...';
+  try {
+    const base = 'https://graph.instagram.com/';
+    const me = await (await fetch(`${base}me?fields=username&access_token=${encodeURIComponent(token)}`)).json();
+    if (me.error) throw new Error(me.error.message);
+    if (wanted && wanted.toLowerCase() !== me.username.toLowerCase())
+      throw new Error(`Token belongs to @${me.username}, not @${wanted}.`);
+    const items = [];
+    let next = `${base}me/media?fields=media_type,media_product_type,media_url,thumbnail_url,permalink&limit=100&access_token=${encodeURIComponent(token)}`;
+    while (next) { // follow paging.next until the whole feed is read
+      const res = await (await fetch(next)).json();
+      if (res.error) throw new Error(res.error.message);
+      items.push(...(res.data || []));
+      next = res.paging && res.paging.next;
+      status.textContent = `Reading feed: ${items.length} posts...`;
+    }
+    const imgs = [];
+    for (let i = 0; i < items.length; i += 10) { // download images in batches of 10
+      const m = items.slice(i, i + 10);
+      imgs.push(...await Promise.all(m.map(x => toDataUrl(x.media_type === 'VIDEO' ? (x.thumbnail_url || x.media_url) : x.media_url))));
+      status.textContent = `Downloading images: ${imgs.length}/${items.length}`;
+    }
+    state.cells = Array.from({ length: Math.ceil(items.length / 3) * 3 }, () => ({ img: null, type: null }));
+    items.forEach((m, i) => { // API returns newest first, same as the profile grid order
+      state.cells[i].img = imgs[i];
+      state.cells[i].type = m.media_type === 'CAROUSEL_ALBUM' ? 'multi' : (m.media_type === 'VIDEO' || m.media_product_type === 'REELS') ? 'reel' : null;
+    });
+    document.querySelector('.hdr .name').textContent = me.username;
+    if ($('#feedRemember').checked) { try { sessionStorage.setItem('igToken', token); } catch {} }
+    render();
+    status.textContent = `Loaded ${items.length} posts from @${me.username}. Pinned posts are not exposed by the API: set them manually.`;
+  } catch (e) { status.textContent = 'Error: ' + e.message; }
+}
+$('#connect').addEventListener('click', () => { const b = $('#connectBox'); b.hidden = !b.hidden; });
+$('#feedLoad').addEventListener('click', loadFeed);
+try { const t = sessionStorage.getItem('igToken'); if (t) { $('#feedToken').value = t; $('#feedRemember').checked = true; } } catch {}
+
+/* ===== Import without API: plain files or Instagram data export ===== */
+const isVideo = f => /^video\//.test(f.type) || /\.(mp4|mov)$/i.test(f.name);
+async function shrink(file) { // downscale so hundreds of posts fit in memory
+  const bmp = await createImageBitmap(file);
+  const k = Math.min(1, 720 / Math.max(bmp.width, bmp.height));
+  const c = document.createElement('canvas'); c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
+  c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height); bmp.close && bmp.close();
+  return c.toDataURL('image/jpeg', 0.85);
+}
+function videoFrame(file) {
+  return new Promise(res => {
+    const v = document.createElement('video'), u = URL.createObjectURL(file);
+    v.muted = true; v.preload = 'auto'; v.src = u;
+    v.onloadeddata = () => { v.currentTime = Math.min(0.1, (v.duration || 1) / 2); };
+    v.onseeked = () => { const c = document.createElement('canvas'); c.width = v.videoWidth; c.height = v.videoHeight;
+      c.getContext('2d').drawImage(v, 0, 0); URL.revokeObjectURL(u); res(c.width ? c.toDataURL('image/jpeg', 0.85) : null); };
+    v.onerror = () => { URL.revokeObjectURL(u); res(null); };
+  });
+}
+const thumbOf = f => isVideo(f) ? videoFrame(f) : shrink(f).catch(() => null);
+function applyItems(items, mode = 'replace') { // items: [{img, type}] in grid order; mode: replace | start | end
+  let all = items;
+  if (mode !== 'replace') {
+    const old = state.cells.slice(); while (old.length && !old[old.length - 1].img) old.pop(); // drop trailing empty placeholders
+    all = mode === 'start' ? items.concat(old) : old.concat(items);
+  }
+  state.cells = Array.from({ length: Math.max(3, Math.ceil(all.length / 3) * 3) }, (_, i) => all[i] || { img: null, type: null });
+  render();
+}
+/* Undo: the feed as it was before the last import is kept in IndexedDB, so it survives a reload */
+async function snapshot() {
+  try {
+    const db = await dbOpen();
+    db.transaction(DB.store, 'readwrite').objectStore(DB.store).put({ cells: JSON.parse(JSON.stringify(state.cells)), at: Date.now() }, 'backup');
+  } catch (e) { console.warn('snapshot failed', e); }
+}
+async function undoImport() {
+  try {
+    const db = await dbOpen();
+    const b = await new Promise((res, rej) => { const q = db.transaction(DB.store).objectStore(DB.store).get('backup'); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); });
+    if (!b) { $('#saveStatus').textContent = 'Поки нічого скасовувати.'; return; }
+    await snapshot();                       // so that "undo" can itself be undone
+    state.cells = b.cells; render();
+    $('#saveStatus').textContent = 'Стрічку повернуто до стану перед останньою зміною.';
+  } catch (e) { $('#saveStatus').textContent = 'Не вдалося скасувати: ' + e.message; }
+}
+/* Server folder (data/feed): works only when this page is opened from the container, http://aperion:8095/planner/ */
+async function loadServerFeed() {
+  const st = $('#impStatus');
+  try {
+    const r = await fetch('/api/feed');
+    if (!r.ok) throw new Error('available only when the page is opened from the container (http://aperion:8095/planner/)');
+    const names = (await r.json()).files;
+    if (!names.length) { st.textContent = 'The server folder is empty. Upload photos with option 3.'; return; }
+    const items = [];
+    for (let i = 0; i < names.length; i++) {
+      st.textContent = `Loading ${i + 1}/${names.length}...`;
+      const b = await (await fetch('/img/feed/' + encodeURIComponent(names[i]))).blob();
+      items.push({ img: await thumbOf(new File([b], names[i], { type: b.type || 'image/jpeg' })), type: null });
+    }
+    await snapshot(); applyItems(items, $('#impMode').value);
+    st.textContent = `Loaded ${items.length} photos from the server folder (${$('#impMode').selectedOptions[0].textContent}). Order = file-name order, so name them 01, 02, ...`;
+  } catch (e) { st.textContent = 'Server folder: ' + e.message; }
+}
+async function uploadToServerFeed(files) {
+  const st = $('#impStatus'); let ok = 0;
+  for (const f of [...files]) {
+    if (!/\.(jpe?g|png)$/i.test(f.name)) { st.textContent = 'Skipped (not jpg/png): ' + f.name; continue; }
+    st.textContent = `Uploading ${ok + 1}/${files.length}: ${f.name}`;
+    try {
+      const r = await fetch('/api/feed/upload', { method: 'POST', headers: { 'X-Filename': encodeURIComponent(f.name) }, body: f });
+      if ((await r.json()).ok) ok++;
+    } catch (e) { st.textContent = 'Upload failed: ' + e.message; return; }
+  }
+  st.textContent = `Uploaded ${ok} photo(s) to the server folder. Press "Load photos from the server folder" to use them.`;
+}
+/* First start in a browser with no saved feed: take the feed saved on the server, else the photos of the server folder */
+async function initFromServer() {
+  try {
+    const r = await fetch('/api/planner-state');
+    if (r.ok) { const j = await r.json(); applySetup(j); $('#saveStatus').textContent = 'Стрічку завантажено із сервера' + (j.at ? ' (збережено ' + fmtTime(j.at) + ')' : '') + '.'; return; }
+    if (r.status === 404) { $('#impMode').value = 'replace'; await loadServerFeed(); $('#impMode').value = 'start'; }
+  } catch (e) { /* page opened as a plain file: nothing to load */ }
+}
+/* Move the whole setup between addresses (file:// and the server page keep separate browser storage) */
+function exportSetup() {
+  const d = new Date(), stamp = d.toISOString().slice(0, 10);
+  const blob = new Blob([JSON.stringify({ ...collectSetup(), at: Date.now() })], { type: 'application/json' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `planner-feed-${stamp}.json`;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  $('#saveStatus').textContent = `Експортовано ${state.cells.filter(c => c.img).length} фото у файл ${a.download}.`;
+}
+async function importSetupFile(file) {
+  const st = $('#saveStatus');
+  try {
+    const j = JSON.parse(await file.text());
+    if (!Array.isArray(j.cells)) throw new Error('це не файл стрічки з планувальника');
+    await snapshot(); applySetup(j);
+    st.textContent = `Імпортовано ${j.cells.filter(c => c && c.img).length} фото з ${file.name}. Натисніть «Зберегти стрічку», щоб зберегти.`;
+  } catch (e) { st.textContent = 'Не вдалося імпортувати: ' + e.message; }
+}
+async function restoreCrops() {
+  const src = window.FEED_CROPS;
+  if (!src || !src.length) { $('#impStatus').textContent = 'feed_crops/feed.js not found next to index.html.'; return; }
+  await snapshot();
+  applyItems(src.map(img => ({ img, type: null })), 'replace');
+  $('#impStatus').textContent = `Restored ${src.length} photos from the phone preview (01 = newest). Pin/carousel/reel icons are not restored.`;
+}
+async function importFiles(list) {
+  const st = $('#saveStatus'); const files = [...list].filter(f => /^(image|video)\//.test(f.type) || isVideo(f));
+  if (!files.length) { st.textContent = 'No images or videos selected.'; return; }
+  const m = $('#impSort').value;
+  files.sort(m === 'name' ? (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }) : m === 'dateAsc' ? (a, b) => a.lastModified - b.lastModified : (a, b) => b.lastModified - a.lastModified);
+  const items = [];
+  for (let i = 0; i < files.length; i++) {
+    st.textContent = `Обробка ${i + 1}/${files.length}...`;
+    items.push({ img: await thumbOf(files[i]), type: isVideo(files[i]) ? 'reel' : null });
+  }
+  await snapshot(); applyItems(items, $('#impMode').value); st.textContent = `Додано ${items.length} фото. Натисніть «Зберегти стрічку», щоб зберегти.`;
+}
+async function importExport(list) {
+  const st = $('#saveStatus'), files = [...list];
+  const byPath = new Map(files.map(f => [f.webkitRelativePath.split('/').slice(1).join('/'), f]));
+  const jsons = files.filter(f => /(^|\/)(posts_\d+|reels|igtv_videos)\.json$/i.test(f.webkitRelativePath));
+  if (!jsons.length) { st.textContent = 'No posts_*.json or reels.json found. Export with format JSON and choose the unzipped folder.'; return; }
+  const posts = new Map(); // first media uri -> post, so duplicates collapse
+  for (const jf of jsons) {
+    let d; try { d = JSON.parse(await jf.text()); } catch { continue; }
+    (Array.isArray(d) ? d : Object.values(d).flat()).forEach(e => {
+      const media = Array.isArray(e.media) ? e.media : e.uri ? [e] : [];
+      if (!media.length) return;
+      posts.set(media[0].uri, { media, ts: e.creation_timestamp || media[0].creation_timestamp || 0, reel: /reels\.json$/i.test(jf.name) });
+    });
+  }
+  const list2 = [...posts.values()].sort((a, b) => b.ts - a.ts); // newest first, like the profile grid
+  const items = []; let missing = 0;
+  for (let i = 0; i < list2.length; i++) {
+    st.textContent = `Обробка ${i + 1}/${list2.length}...`;
+    const p = list2[i], f = byPath.get(p.media[0].uri);
+    if (!f) { missing++; continue; }
+    items.push({ img: await thumbOf(f), type: p.media.length > 1 ? 'multi' : (p.reel || isVideo(f)) ? 'reel' : null });
+  }
+  await snapshot(); applyItems(items, $('#impMode').value);
+  st.textContent = `Imported ${items.length} posts` + (missing ? `, ${missing} skipped (media file not found in the folder).` : '.') + ' Pinned posts are not in the export: set them manually.';
+}
+$('#importBtn').addEventListener('click', () => { const b = $('#importBox'); b.hidden = !b.hidden; });
+$('#impFiles').addEventListener('change', async e => { await importFiles(e.target.files); e.target.value = ''; });
+$('#impFolder').addEventListener('change', async e => { await importExport(e.target.files); e.target.value = ''; });
+$('#undoImport').addEventListener('click', undoImport);
+$('#dropFiles').addEventListener('change', async e => { await importFiles(e.target.files); e.target.value = ''; });
+const dropFeed = $('#dropFeed');
+dropFeed.addEventListener('dragover', e => { e.preventDefault(); dropFeed.classList.add('over'); });
+dropFeed.addEventListener('dragleave', () => dropFeed.classList.remove('over'));
+dropFeed.addEventListener('drop', async e => { e.preventDefault(); dropFeed.classList.remove('over'); if (e.dataTransfer.files.length) await importFiles(e.dataTransfer.files); });
+$('#exportSetup').addEventListener('click', exportSetup);
+$('#importSetupBtn').addEventListener('click', () => $('#importSetup').click());
+$('#importSetup').addEventListener('change', async e => { if (e.target.files[0]) await importSetupFile(e.target.files[0]); e.target.value = ''; });
+$('#srvLoad').addEventListener('click', loadServerFeed);
+$('#srvUpload').addEventListener('change', async e => { await uploadToServerFeed(e.target.files); e.target.value = ''; });
+$('#restoreCrops').addEventListener('click', restoreCrops);
+
+/* ===== Fetch whole feed by profile link via local scraper.py ===== */
+async function scrapeFeed() {
+  const st = $('#scrStatus'), user = parseUsername($('#scrUrl').value), limit = +$('#scrLimit').value || 0;
+  if (!user) { st.textContent = 'Paste a profile link first.'; return; }
+  const base = location.protocol.startsWith('http') && location.port === '8787' ? '' : 'http://127.0.0.1:8787';
+  const items = [];
+  await snapshot(); // keep the current feed so it can be restored with "Undo"
+  try {
+    const resp = await fetch(`${base}/feed?user=${encodeURIComponent(user)}&limit=${limit}`);
+    const reader = resp.body.getReader(), dec = new TextDecoder(); let buf = '';
+    for (;;) {
+      const { done, value } = await reader.read(); if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let k; while ((k = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, k); buf = buf.slice(k + 1); if (!line.trim()) continue;
+        const m = JSON.parse(line);
+        if (m.event === 'error') throw new Error(m.message);
+        if (m.event === 'start') { document.querySelector('.hdr .name').textContent = m.username; st.textContent = `@${m.username}: ${m.total} posts in profile...`; }
+        if (m.event === 'post') { items.push({ img: m.img, type: m.type }); st.textContent = `Loaded ${items.length} posts...`; if (items.length % 6 === 0) applyItems(items); }
+      }
+    }
+    applyItems(items); st.textContent = `Done: ${items.length} posts from @${user}.`;
+  } catch (e) {
+    if (items.length) applyItems(items);
+    st.textContent = 'Error: ' + (e.message === 'Failed to fetch' ? 'scraper.py is not running (python scraper.py).' : e.message) + (items.length ? ` Kept ${items.length} loaded posts.` : '');
+  }
+}
+
+function setRows(r) { // phone grows by one grid row (160 px + 1 px gap) per step
+  $('#rows').value = r; $('#rowsVal').textContent = r;
+  $('#phone').style.setProperty('--ph', (861 + (r - 4) * ((document.querySelector('.cell') || { offsetHeight: 160 }).offsetHeight + 1)) + 'px');
+}
+const DEFAULT_SCALE = 60;   // fixed: the view scale is always 60%
+function setScale() { const v = DEFAULT_SCALE; $('#scale').value = v; $('#scaleVal').textContent = v + '%'; document.documentElement.style.setProperty('--u', v / 100); if (typeof alignRef === 'function') alignRef(); }
+function setCols(c) { $('#cols').value = c; $('#colsVal').textContent = c; $('#phone').style.setProperty('--cols', c); $('#ref').style.setProperty('--cols', c); }
+
+/* ===== Phone preview: mirrors the planner feed (state.cells), updated on every render() ===== */
+function renderRef() {
+  const g = $('#refGrid'), cells = state.cells;
+  while (g.children.length > cells.length) g.lastChild.remove();
+  while (g.children.length < cells.length) {
+    const d = document.createElement('div'); d.className = 'rc'; d.innerHTML = '<img alt="">'; g.appendChild(d);
+  }
+  cells.forEach((c, i) => {
+    const d = g.children[i], im = d.firstChild;
+    if (c.img) { if (im.getAttribute('src') !== c.img) im.src = c.img; im.style.display = ''; }
+    else { im.removeAttribute('src'); im.style.display = 'none'; }
+    const t = c.type || '', b = d.querySelector('.rb');
+    if (t && (!b || b.dataset.t !== t)) { if (b) b.remove(); const s = document.createElement('span'); s.className = 'rb'; s.dataset.t = t; s.innerHTML = ICONS[t]; d.appendChild(s); }
+    else if (!t && b) b.remove();
+  });
+  alignRef();
+}
+function alignRef() { // reference window shows only the first 9-12 posts (3-4 rows), like a phone screen
+  const g = $('#refGrid'), w = g.clientWidth; if (!w) return;
+  const cellH = ((w - 2) / 3) * 4 / 3 + 1;                       // 3:4 cell + 1px gap
+  const free = innerHeight - 24 - 16 - ($('#refTitle').offsetHeight || 48); // margins, border, title
+  const rows = Math.max(3, Math.min(4, Math.floor(free / cellH)));
+  g.style.height = Math.round(rows * cellH - 1) + 'px';
+  g.classList.add('scrollable');                                  // always: window shows 9-12 posts, the rest scrolls inside the phone
+}
+function setCmp(on) { $('#optCmp').checked = on; document.body.classList.toggle('cmp', on); alignRef(); }
+$('#optCmp').addEventListener('change', e => { setCmp(e.target.checked); save(); });window.addEventListener('resize', alignRef);
+$('#rows').addEventListener('input', e => { setRows(+e.target.value); save(); });
+
+function setFeedOnly(on) { $('#optFeed').checked = on; document.body.classList.toggle('feedonly', on); if (!on) document.body.classList.remove('showpanel'); if (typeof alignRef === 'function') alignRef(); }
+$('#optFeed').addEventListener('change', e => { setFeedOnly(e.target.checked); save(); });
+$('#gear').addEventListener('click', () => document.body.classList.toggle('showpanel'));
+$('#cols').addEventListener('input', e => { setCols(+e.target.value); save(); });
+$('#scale').addEventListener('input', e => { setScale(+e.target.value); save(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') document.body.classList.remove('showpanel'); });
+setFeedOnly(true); setScale();
+if (/^https?:$/.test(location.protocol)) document.getElementById('backBtn').classList.add('srv');   // the stories page exists only on the server
+
+/* ===== Persistence: layout + photos survive a reload (IndexedDB, images are too big for localStorage) ===== */
+const DB = { name: 'grid-planner', store: 'kv', key: 'layout' };
+const dbOpen = () => new Promise((res, rej) => {
+  const r = indexedDB.open(DB.name, 1);
+  r.onupgradeneeded = () => r.result.createObjectStore(DB.store);
+  r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+});
+let saveTimer = null;
+const collectSetup = () => ({ // everything that makes up the current setup: photos, order, icons, view settings
+  cells: state.cells, smartphone: state.smartphone, checkmark: state.checkmark,
+  rows: +$('#rows').value, cols: +$('#cols').value, scale: +$('#scale').value, feedOnly: $('#optFeed').checked, cmp: $('#optCmp').checked,
+  name: document.querySelector('.hdr .name').textContent, dismissed: state.dismissed, archive: state.archive
+});
+function applySetup(s) {
+  if (Array.isArray(s.cells) && s.cells.length) state.cells = s.cells;
+  state.dismissed = Array.isArray(s.dismissed) ? s.dismissed : [];
+  state.archive = Array.isArray(s.archive) ? s.archive : [];
+  state.smartphone = true; state.checkmark = true;                 // view settings are fixed, saved values are ignored
+  if (s.name && s.name !== 'yourusername') document.querySelector('.hdr .name').textContent = s.name;   // the old placeholder is not restored
+  setFeedOnly(true); setCmp(true);
+  render(); // cells must exist before row height can be measured
+  setCols(3); setRows(4); setScale();
+}
+const dbGet = async key => { const db = await dbOpen(); return new Promise((res, rej) => { const q = db.transaction(DB.store).objectStore(DB.store).get(key); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); }); };
+function save() { // debounced; called after every change
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(async () => {
+    try {
+      const db = await dbOpen();
+      db.transaction(DB.store, 'readwrite').objectStore(DB.store).put(collectSetup(), DB.key);
+    } catch (e) { console.warn('save failed', e); }
+    pushMeta();
+  }, 400);
+}
+/* Manual checkpoint: "Save feed" stores the current setup under its own key, "Restore saved feed" brings it back */
+const fmtTime = t => new Date(t).toLocaleString('uk-UA', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+async function saveCheckpoint() {
+  const st = $('#saveStatus');
+  try {
+    const db = await dbOpen(), at = Date.now(), n = state.cells.filter(c => c.img).length;
+    await new Promise((res, rej) => { const tx = db.transaction(DB.store, 'readwrite'); tx.objectStore(DB.store).put({ ...collectSetup(), cells: JSON.parse(JSON.stringify(state.cells)), at }, 'saved'); tx.oncomplete = res; tx.onerror = () => rej(tx.error); });
+    let where = '';
+    try { const r = await fetch('/api/planner-state', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...collectSetup(), at }) }); if (r.ok) where = ' Збережено й на сервері.'; } catch (e) {}
+    st.textContent = `Збережено ${fmtTime(at)}: ${n} фото.` + where;
+  } catch (e) { st.textContent = 'Не вдалося зберегти: ' + e.message; }
+}
+async function restoreCheckpoint() {
+  const st = $('#saveStatus');
+  try {
+    let s = await dbGet('saved');
+    if (!s) { try { const r = await fetch('/api/planner-state'); if (r.ok) s = await r.json(); } catch (e) {} }   // not saved in this browser: use the server copy
+    if (!s) { st.textContent = 'Збереженої стрічки ще немає. Спершу натисніть «Зберегти стрічку».'; return; }
+    await snapshot(); // current state stays available through "Undo last import / change"
+    applySetup(s);
+    st.textContent = `Відновлено стрічку, збережену ${fmtTime(s.at)}: ${s.cells.filter(c => c.img).length} фото.`;
+  } catch (e) { st.textContent = 'Не вдалося відновити: ' + e.message; }
+}
+async function showSavedTime() { try { const s = await dbGet('saved'); if (s) $('#saveStatus').textContent = `Останнє збереження ${fmtTime(s.at)}: ${s.cells.filter(c => c.img).length} фото.`; } catch (e) {} }
+async function restore() {
+  try {
+    const s = await dbGet(DB.key);
+    if (!s) return false;
+    applySetup(s);
+    return true;
+  } catch (e) { console.warn('restore failed', e); }
+  return false;
+}
+
+/* ===== Wiring ===== */
+fileEl.addEventListener('change', () => loadFile(fileEl.files[0], pickIndex));
+$('#optPhone').addEventListener('change', e => { state.smartphone = e.target.checked; render(); });
+$('#optCheck').addEventListener('change', e => { state.checkmark = e.target.checked; render(); });
+document.querySelector('.hdr .name').addEventListener('input', save);
+$('#saveFeed').addEventListener('click', saveCheckpoint);
+$('#refresh').addEventListener('click', refreshPosts);
+$('#toggleArchive').addEventListener('click', () => {
+  const b = $('#archiveBox'); b.hidden = !b.hidden;
+  $('#toggleArchive').setAttribute('aria-expanded', String(!b.hidden)); renderArchive();
+});
+$('#showHidden').addEventListener('click', () => { state.dismissed = []; refreshPosts(); });
+$('#toggleSettings').addEventListener('click', () => {
+  const b = $('#settingsBox'), open = b.hidden; b.hidden = !open;
+  $('#toggleSettings').setAttribute('aria-expanded', String(open));
+  $('#toggleSettings').innerHTML = 'Налаштування стрічки ' + (open ? '&#9652;' : '&#9662;');
+});
+$('#restoreFeed').addEventListener('click', restoreCheckpoint);
+showSavedTime();
+$('#clear').addEventListener('click', async () => { await snapshot(); state.cells.forEach(c => { Object.keys(c).forEach(k => delete c[k]); c.img = null; c.type = null; }); render(); });
+$('#clock').textContent = new Date().toLocaleTimeString([], { hour: 'numeric', minute: 'numeric' }).replace(/ ?[AP]M/, '');
+render(); setCmp(true);
+restore().then(ok => ok ? 0 : initFromServer()).finally(async () => { restored = true; alignRef(); await syncPosts(); }); // enable autosave only after the saved state is loaded, so it is never overwritten by the empty default
+</script>
+</body>
+</html>

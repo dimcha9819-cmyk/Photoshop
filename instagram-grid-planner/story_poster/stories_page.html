@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="uk"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Історії</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%232f5be0'/%3E%3Ccircle cx='32' cy='32' r='13' fill='none' stroke='%23fff' stroke-width='5'/%3E%3Ccircle cx='46' cy='18' r='3.5' fill='%23fff'/%3E%3C/svg%3E">
+<style>
+:root{--bg:#0f0f10;--card:#1a1a1c;--card2:#232326;--text:#ededed;--muted:#a0a0a8;--line:#2a2a2d;--accent:#2f5be0;--accent-hover:#2549b8;--accent-text:#7d9cff;--danger:#ff6b5e;color-scheme:dark}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;font:14px/1.45 Roboto,"Helvetica Neue",Arial,sans-serif;background:var(--bg);color:var(--text);overflow:hidden}
+.app{display:grid;grid-template-columns:300px minmax(0,1fr) 340px;height:100vh}
+.col{overflow-y:auto;padding:18px;scrollbar-width:thin;scrollbar-color:#3a3a3e transparent}
+.left{background:var(--card);border-right:1px solid var(--line)}
+.right{background:var(--card);border-left:1px solid var(--line)}
+h1{font-size:20px;margin:0 0 4px}
+h2{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:22px 0 8px;font-weight:600}
+.center h2{margin-top:0}
+.sub{color:var(--muted);font-size:12px}
+a{color:var(--accent-text)}
+button,.btn{font:inherit;font-weight:600;border:1px solid var(--accent);border-radius:8px;padding:10px 16px;min-height:40px;background:var(--accent);color:#fff;cursor:pointer;width:100%;text-align:center;text-decoration:none;display:block}
+button:hover:not(:disabled),.btn:hover{background:var(--accent-hover);border-color:var(--accent-hover)}
+button.sec,.btn.sec{background:var(--card2);border-color:var(--line);color:var(--text);font-weight:500}
+button.sec:hover:not(:disabled),.btn.sec:hover{background:#2c2c30;border-color:var(--line)}
+.btn.cur{border-color:var(--accent);color:var(--accent-text);pointer-events:none}
+button:disabled{opacity:.5;cursor:default}
+.stack{display:flex;flex-direction:column;gap:8px;margin-top:14px}
+.drop{border:1px dashed #3a3a3e;border-radius:8px;padding:16px 10px;text-align:center;color:var(--muted);margin-top:12px;font-size:13px}
+.drop.over{border-color:var(--accent);color:var(--accent-text)}
+.kv{display:grid;grid-template-columns:1fr auto;gap:6px 10px;font-size:13px;border-top:1px solid var(--line);padding-top:8px}
+.kv span:nth-child(odd){color:var(--muted)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+.card{position:relative;background:var(--card);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.card img{display:block;width:100%;aspect-ratio:9/16;object-fit:cover;background:#222}
+.card .meta{padding:6px 8px;font-size:12px;color:var(--muted);word-break:break-word}
+.card .meta b{color:var(--text);font-weight:600}
+.card .num{position:absolute;left:6px;top:6px;background:rgba(0,0,0,.7);color:#fff;border-radius:999px;padding:1px 8px;font-size:12px}
+.card .tools{position:absolute;right:6px;top:6px;display:flex;gap:4px}
+.card .tools button{width:32px;height:32px;min-height:32px;padding:0;border-radius:6px;background:rgba(0,0,0,.7);border-color:transparent;font-size:14px}
+.card .tools button:hover{background:rgba(0,0,0,.9)}
+.card.dragging{opacity:.4}.card.over{outline:3px solid var(--accent)}
+.rgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.rgrid .meta{padding:4px 6px;font-size:11px}
+.rgrid .card.posted{opacity:.4}
+.rgrid .card.posted:hover{opacity:.75}
+.badge{position:absolute;left:5px;bottom:34px;background:rgba(0,0,0,.7);color:#fff;font-size:10px;border-radius:4px;padding:1px 5px}
+pre{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px;white-space:pre-wrap;font-size:11px;max-height:200px;overflow:auto;margin:10px 0 0}
+.warn{color:var(--danger)}
+.empty{color:var(--muted);font-size:13px}
+@media(max-width:1000px){body{overflow:auto}.app{display:block;height:auto}.col{overflow:visible;border:0}}
+</style></head><body>
+<div class="app">
+  <aside class="col left">
+    <h1>Історії Instagram</h1>
+    <div class="sub" id="settings"></div>
+    <div class="stack">
+      <a class="btn sec" href="/calendar/">Календар</a>
+      <a class="btn sec" href="/planner/">Стрічка</a>
+      <a class="btn sec cur" href="/stories/" aria-current="page">Історії</a>
+    </div>
+    <div class="stack">
+      <button id="run">Запустити зараз</button>
+      <button class="sec" id="reload">Оновити</button>
+    </div>
+    <div class="drop" id="drop">Перетягніть фото сюди або <label style="color:var(--accent-text);cursor:pointer"><u>виберіть файли</u><input id="file" type="file" accept="image/jpeg,image/png" multiple hidden></label><br><span class="sub">jpg, png, до 8 МБ</span></div>
+    <div class="sub" id="msg" style="margin-top:8px;min-height:18px"></div>
+    <h2>Стан</h2>
+    <div class="kv" id="stats"></div>
+    <pre id="log" hidden></pre>
+  </aside>
+
+  <main class="col center">
+    <h2 id="hw">Послідовність публікацій</h2>
+    <div class="sub" style="margin:-4px 0 12px">Перетягуйте фото, щоб змінити порядок. Дата показує, коли історія вийде після постановки в чергу.</div>
+    <div class="grid" id="waiting"></div>
+  </main>
+
+  <aside class="col right">
+    <h2 style="margin-top:0" id="hq">Заплановано</h2>
+    <div class="rgrid" id="queue"></div>
+    <div class="sub" style="margin-top:8px">Щоб скасувати вже заплановану історію, видаліть її в самому Buffer.</div>
+    <h2 id="hp">Опубліковані</h2>
+    <div class="rgrid" id="posted"></div>
+  </aside>
+</div>
+<script>
+const $=s=>document.querySelector(s);
+let state=null,dragName=null;
+const fmt=iso=>new Date(iso).toLocaleString('uk-UA',{timeZone:state.settings.tz,day:'2-digit',month:'2-digit',weekday:'short',hour:'2-digit',minute:'2-digit'});
+const say=t=>{$('#msg').textContent=t};
+async function api(path,body){const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})});return r.json()}
+async function load(){state=await (await fetch('/api/state')).json();render()}
+function card(section,name,opts={}){
+  const d=document.createElement('div');d.className='card'+(opts.cls?' '+opts.cls:'');d.dataset.name=name;
+  d.innerHTML='<img loading="lazy" src="/img/'+section+'/'+encodeURIComponent(name)+'" alt=""><div class="meta">'+(opts.meta||'')+'</div>';
+  if(opts.num)d.insertAdjacentHTML('afterbegin','<span class="num">'+opts.num+'</span>');
+  return d;
+}
+function render(){
+  const s=state.settings;
+  $('#settings').textContent='Щодня о '+s.post_time+' ('+s.tz+')';
+  $('#stats').innerHTML='<span>Очікують у теці</span><span>'+state.waiting.length+'</span><span>У черзі в Buffer</span><span>'+state.scheduled.length+'</span><span>Опубліковані</span><span>'+state.posted.length+'</span><span>Тримати в черзі</span><span>'+s.days_ahead+' дн.</span><span>Історій на день</span><span>'+s.per_day+'</span>';
+  $('#hw').textContent='Послідовність публікацій ('+state.waiting.length+')';
+  const w=$('#waiting');w.innerHTML='';
+  if(!state.waiting.length)w.innerHTML='<div class="empty">Тека порожня. Додайте фото зліва.</div>';
+  state.waiting.forEach((p,i)=>{
+    const c=card('waiting',p.name,{num:i+1,meta:'<b>'+fmt(p.expected)+'</b>'+(p.size>8*1048576?' <span class="warn">більше 8 МБ</span>':'')+'<br>'+p.name});
+    c.draggable=true;
+    c.insertAdjacentHTML('beforeend','<div class="tools"><button title="Першою">&#10514;</button><button title="У кошик">&#10005;</button></div>');
+    const [top,del]=c.querySelectorAll('.tools button');
+    top.onclick=()=>move(p.name,0);
+    del.onclick=async()=>{if(confirm('Перемістити в кошик: '+p.name+'?')){await api('/api/delete',{name:p.name});load()}};
+    c.ondragstart=e=>{dragName=p.name;c.classList.add('dragging');e.dataTransfer.effectAllowed='move'};
+    c.ondragend=()=>{dragName=null;document.querySelectorAll('.card').forEach(x=>x.classList.remove('dragging','over'))};
+    c.ondragover=e=>{if(dragName){e.preventDefault();c.classList.add('over')}};
+    c.ondragleave=()=>c.classList.remove('over');
+    c.ondrop=e=>{e.preventDefault();if(dragName&&dragName!==p.name){const names=state.waiting.map(x=>x.name).filter(x=>x!==dragName);names.splice(names.indexOf(p.name),0,dragName);saveOrder(names)}};
+    w.appendChild(c);
+  });
+  $('#hq').textContent='Заплановано ('+state.scheduled.length+')';
+  const q=$('#queue');q.innerHTML='';
+  if(!state.scheduled.length)q.innerHTML='<div class="empty" style="grid-column:1/-1">Порожньо</div>';
+  state.scheduled.forEach(i=>q.appendChild(card('scheduled',i.file,{meta:'<b>'+fmt(i.due)+'</b>'})));
+  $('#hp').textContent='Опубліковані ('+state.posted.length+')';
+  const pp=$('#posted');pp.innerHTML='';
+  if(!state.posted.length)pp.innerHTML='<div class="empty" style="grid-column:1/-1">Ще немає</div>';
+  state.posted.slice(-30).reverse().forEach(n=>{const c=card('posted',n,{cls:'posted',meta:n});c.insertAdjacentHTML('beforeend','<span class="badge">викладено</span>');pp.appendChild(c)});
+}
+async function saveOrder(names){await api('/api/order',{names});load()}
+function move(name,idx){const names=state.waiting.map(x=>x.name).filter(x=>x!==name);names.splice(idx,0,name);saveOrder(names)}
+async function upload(files){
+  let ok=0;
+  for(const f of files){
+    if(!/\.(jpe?g|png)$/i.test(f.name)){say('Пропущено (не jpg/png): '+f.name);continue}
+    say('Завантаження '+(ok+1)+'/'+files.length+': '+f.name);
+    const r=await fetch('/api/upload',{method:'POST',headers:{'X-Filename':encodeURIComponent(f.name)},body:f});
+    const j=await r.json();if(j.ok){ok++;if(j.warning)say(f.name+': '+j.warning)}else say(f.name+': '+(j.error||'помилка'));
+  }
+  say('Завантажено: '+ok);load();
+}
+$('#file').onchange=e=>{upload([...e.target.files]);e.target.value=''};
+const drop=$('#drop');
+drop.ondragover=e=>{if(!dragName){e.preventDefault();drop.classList.add('over')}};
+drop.ondragleave=()=>drop.classList.remove('over');
+drop.ondrop=e=>{e.preventDefault();drop.classList.remove('over');if(e.dataTransfer.files.length)upload([...e.dataTransfer.files])};
+$('#reload').onclick=load;
+$('#run').onclick=async()=>{
+  $('#run').disabled=true;say('Виконується…');
+  try{const j=await api('/api/run');const l=$('#log');l.hidden=false;l.textContent=j.output||j.error||'';say(j.ok?'Готово':'Помилка, див. журнал нижче')}
+  catch(e){say('Помилка зв’язку')}
+  $('#run').disabled=false;load();
+};
+load();
+</script></body></html>
